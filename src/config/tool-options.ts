@@ -18,8 +18,8 @@ export const toolOptions: Record<string, FieldDef[]> = {
     { key: "targetLength", label: "目标字数", type: "number", placeholder: "500", defaultValue: 500 }
   ],
   "digital-human": [
-    { key: "avatarId", label: "数字人形象", type: "select", options: ["默认主播", "温暖女声", "专业男声"], defaultValue: "默认主播" },
-    { key: "aspectRatio", label: "画面比例", type: "select", options: ["9:16（竖屏）", "16:9（横屏）", "1:1（方形）"], defaultValue: "9:16（竖屏）" }
+    { key: "photo", label: "上传你的照片", type: "file", accept: "image/*" },
+    { key: "aspectRatio", label: "画面比例", type: "select", options: ["9:16（竖屏）", "16:9（横屏）", "2.35:1（电影宽幅）"], defaultValue: "9:16（竖屏）" }
   ],
   "ai-voice": [
     { key: "voice", label: "音色", type: "select", options: ["温暖女声", "活力女声", "低沉男声", "温暖男声"], defaultValue: "温暖女声" },

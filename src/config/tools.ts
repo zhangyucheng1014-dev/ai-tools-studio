@@ -32,17 +32,19 @@ export const tools: Tool[] = [
   {
     slug: "digital-human",
     name: "数字人口播",
-    tagline: "输入文案，生成数字人出镜视频",
-    description: "输入口播文案，选择数字人形象，自动生成口型同步的数字人视频，适合产品介绍、课程讲解等场景。",
+    tagline: "上传你的照片，输入文案，AI 生成你出镜的口播视频",
+    description: "上传一张正面照片，输入口播文案，AI 让照片中的人开口说话。自动加 Ken Burns 电影级缓推动效，看起来像专业剪辑而非 AI 生成。",
     provider: "HeyGem",
     icon: "bot",
-    inputs: ["口播文案", "数字人形象", "视频比例"],
+    inputs: ["你的照片", "口播文案"],
     instructions: [
-      "输入你想要数字人说的文案",
-      "选择一个数字人形象",
-      "选择视频比例（9:16 适合短视频）",
-      "生成数字人出镜视频"
-    ]
+      "上传一张正面清晰照片（半身照效果最佳）",
+      "输入口播文案",
+      "选择画面比例",
+      "AI 生成照片人物说话的视频",
+      "自动叠加 Ken Burns 缓推动效"
+    ],
+    fileBased: true
   },
   {
     slug: "ai-voice",

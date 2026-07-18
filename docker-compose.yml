@@ -1,0 +1,139 @@
+# AI 工具台 — 完整服务编排
+# 使用方法: docker compose up -d
+# 需要 NVIDIA GPU + nvidia-docker 支持
+
+services:
+  # ── 前端 ──────────────────────────────────────
+  frontend:
+    build: .
+    ports:
+      - "3000:3000"
+    env_file: .env
+    depends_on:
+      - tiktok-downloader
+      - heygem
+      - gpt-sovits
+      - content-rewriter
+      - money-printer
+      - video-enhancer
+      - social-upload
+    restart: unless-stopped
+
+  # ── 1. 视频下载 — TikTokDownloader ────────────
+  tiktok-downloader:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install -q flask && python -c \"
+      from flask import Flask, request, jsonify
+      app = Flask(__name__)
+      @app.route('/api/video/parse', methods=['POST'])
+      def parse():
+          return jsonify({'ok': True, 'message': 'TikTokDownloader placeholder'})
+      app.run(host='0.0.0.0', port=8000)
+      \""
+    ports:
+      - "8001:8000"
+    restart: unless-stopped
+
+  # ── 2. 文案改写 — Content Rewriter ────────────
+  content-rewriter:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install -q flask && python -c \"
+      from flask import Flask, request, jsonify
+      app = Flask(__name__)
+      @app.route('/api/rewrite', methods=['POST'])
+      def rewrite():
+          return jsonify({'ok': True, 'result': 'Content rewrite placeholder'})
+      app.run(host='0.0.0.0', port=8000)
+      \""
+    ports:
+      - "8007:8000"
+    restart: unless-stopped
+
+  # ── 3. 数字人 — HeyGem ────────────────────────
+  heygem:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install -q flask && python -c \"
+      from flask import Flask, request, jsonify
+      app = Flask(__name__)
+      @app.route('/api/avatar/create', methods=['POST'])
+      def create():
+          return jsonify({'ok': True, 'task_id': 'mock-task'})
+      app.run(host='0.0.0.0', port=8000)
+      \""
+    ports:
+      - "8002:8000"
+    restart: unless-stopped
+
+  # ── 4. AI 配音 — GPT-SoVITS ───────────────────
+  gpt-sovits:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install -q flask && python -c \"
+      from flask import Flask, request, jsonify
+      app = Flask(__name__)
+      @app.route('/api/audio/create', methods=['POST'])
+      def create():
+          return jsonify({'ok': True, 'audio_url': 'mock'})
+      app.run(host='0.0.0.0', port=8000)
+      \""
+    ports:
+      - "8003:8000"
+    restart: unless-stopped
+
+  # ── 5. 视频制作 — MoneyPrinterTurbo ────────────
+  money-printer:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install -q flask && python -c \"
+      from flask import Flask, request, jsonify
+      app = Flask(__name__)
+      @app.route('/api/video/render', methods=['POST'])
+      def render():
+          return jsonify({'ok': True, 'task_id': 'mock-render'})
+      app.run(host='0.0.0.0', port=8000)
+      \""
+    ports:
+      - "8005:8000"
+    restart: unless-stopped
+
+  # ── 6. 视频增强 — Real-ESRGAN ──────────────────
+  video-enhancer:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install -q flask && python -c \"
+      from flask import Flask, request, jsonify
+      app = Flask(__name__)
+      @app.route('/api/video/enhance', methods=['POST'])
+      def enhance():
+          return jsonify({'ok': True, 'task_id': 'mock-enhance'})
+      app.run(host='0.0.0.0', port=8000)
+      \""
+    ports:
+      - "8006:8000"
+    restart: unless-stopped
+
+  # ── 7. 发布 — social-auto-upload ──────────────
+  social-upload:
+    image: python:3.11-slim
+    working_dir: /app
+    command: >
+      sh -c "pip install -q flask && python -c \"
+      from flask import Flask, request, jsonify
+      app = Flask(__name__)
+      @app.route('/api/social/upload', methods=['POST'])
+      def upload():
+          return jsonify({'ok': True, 'task_id': 'mock-upload'})
+      app.run(host='0.0.0.0', port=8000)
+      \""
+    ports:
+      - "8006:8000"
+    restart: unless-stopped

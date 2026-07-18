@@ -24,7 +24,7 @@ export default function HomePage() {
         </section>
 
         <p className="mt-12 text-center text-xs text-[var(--accent-dim)]">
-          配置 .env 中的服务地址后自动连接 AI 服务
+          AI 模型在浏览器端运行 · 首次使用自动下载 · 之后永久离线可用
         </p>
       </div>
     </main>

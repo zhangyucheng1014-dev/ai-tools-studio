@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@mlc-ai/web-llm": "^0.2.84",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.12",
     "lucide-react": "^0.468.0",
@@ -22,6 +23,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "tailwindcss": "^4.1.18",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vercel": "^56.3.2"
   }
 }
