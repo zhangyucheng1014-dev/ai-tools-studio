@@ -1,8 +1,8 @@
 /**
- * 数字人口播 — 精简自然引擎 + 剪辑效果
+ * 数字人口播 — 电影级引擎
  *
- * 核心原则: 少即是多。只保留有生理依据的行为。
- * 剪辑: 慢推镜(Ken Burns)、暗角、暖色调、胶片颗粒
+ * 人物: 极轻铰链(0.015) + 微非对称(0.3%) + 微表情
+ * 剪辑: 片头大字砸落 + 光斑粒子 + 暖色滤镜 + 宽幅遮罩
  */
 
 import * as THREE from "three";
@@ -19,8 +19,8 @@ async function analyzeAudio(blob:Blob,fps=30):Promise<AudioProfile>{
   for(let i=0;i<total;i++){
     const st=i*fz,en=Math.min(st+fz,d.length);let lo=0,mi=0,hi=0,pr=0;
     for(let j=st;j<en;j++){const v=d[j],df=Math.abs(v-pr);if(df<.06)lo+=Math.abs(v);else if(df<.18)mi+=Math.abs(v);else hi+=Math.abs(v);pr=v}
-    const n=en-st;B[0][i]=lo/n*4;B[1][i]=mi/n*3.5;B[2][i]=hi/n*2.5;
-    const cur=B[0][i]+B[1][i]+B[2][i];O[i]=cur>pE*1.8?1:0;sil=cur<.025?sil+1:0;S[i]=sil;pE=cur;
+    const n=en-st;B[0][i]=lo/n*3.5;B[1][i]=mi/n*3;B[2][i]=hi/n*2.5;
+    const cur=B[0][i]+B[1][i]+B[2][i];O[i]=cur>pE*1.8?1:0;sil=cur<.02?sil+1:0;S[i]=sil;pE=cur;
   }
   return{duration:buf.duration,bands:B,onsets:O,silence:S};
 }
@@ -32,6 +32,25 @@ type Vis=[number,number,number,number];
 const V:Record<string,Vis>={A:[1,.3,.1,0],E:[.4,1,0,.35],I:[.35,.8,0,.3],O:[.5,0,1,.25],U:[.2,-.3,1,.2],R:[.15,0,0,.05]};
 function vis(lo:number,mi:number,hi:number):Vis{const t=lo+mi+hi;if(t<.03)return V.R;if(lo>mi*1.5&&lo>hi*2)return V.A;if(lo>mi&&lo>hi*1.5)return V.O;if(mi>lo*1.3&&mi>hi)return V.E;if(mi>lo&&mi>hi*1.3)return V.I;return V.R}
 
+// ── 文字纹理 ──────────────────────────────────────────────────
+
+function makeTextTexture(text:string,fontSize:number,color:string,bg:string):THREE.CanvasTexture{
+  const c=document.createElement("canvas");c.width=512;c.height=256;
+  const x=c.getContext("2d")!;x.fillStyle=bg;x.fillRect(0,0,512,256);
+  x.fillStyle=color;x.font=`bold ${fontSize}px "PingFang SC","Microsoft YaHei",sans-serif`;x.textAlign="center";x.textBaseline="middle";
+  x.fillText(text,256,128);
+  return new THREE.CanvasTexture(c);
+}
+
+function makeIconTexture(emoji:string):THREE.CanvasTexture{
+  const c=document.createElement("canvas");c.width=128;c.height=128;
+  const x=c.getContext("2d")!;x.font="80px serif";x.textAlign="center";x.textBaseline="middle";
+  x.fillText(emoji,64,64);
+  return new THREE.CanvasTexture(c);
+}
+
+// ── 主函数 ──────────────────────────────────────────────────
+
 export async function generateTalkingVideo(
   photoUrl:string,script:string,aspectRatio:string,on?:(m:string)=>void
 ):Promise<Blob|null>{
@@ -41,9 +60,10 @@ export async function generateTalkingVideo(
   on?.("分析…");const P=await analyzeAudio(audioBlob,30);
   const sz:Record<string,[number,number]>={"9:16（竖屏）":[720,1280],"16:9（横屏）":[1280,720],"2.35:1（电影宽幅）":[1280,544]};
   const[W,H]=sz[aspectRatio]??[720,1280];
+  const isFilm=aspectRatio.includes("2.35");
 
   const r=new THREE.WebGLRenderer({antialias:true});r.setSize(W,H);r.setPixelRatio(1);r.toneMapping=THREE.ACESFilmicToneMapping;r.toneMappingExposure=1.1;r.outputColorSpace=THREE.SRGBColorSpace;
-  const scene=new THREE.Scene();const cam=new THREE.PerspectiveCamera(28,W/H,.1,20);cam.position.set(0,.02,3.6);cam.lookAt(0,-.06,0);
+  const scene=new THREE.Scene();const cam=new THREE.PerspectiveCamera(28,W/H,.1,20);cam.position.set(0,.02,3.6);cam.lookAt(0,-.08,0);
 
   // 棚
   const wG=()=>{const c=document.createElement("canvas");c.width=256;c.height=256;const x=c.getContext("2d")!,g=x.createLinearGradient(0,0,0,256);g.addColorStop(0,"#3a3040");g.addColorStop(.4,"#2a2430");g.addColorStop(1,"#1a1820");x.fillStyle=g;x.fillRect(0,0,256,256);return new THREE.CanvasTexture(c);};
@@ -64,16 +84,17 @@ export async function generateTalkingVideo(
   for(let i=0;i<hp.count;i++){const x=hp.getX(i),y=hp.getY(i);hp.setZ(i,(x*x*.04+y*y*.025)*.25)}hGeo.computeVertexNormals();
   head.add(new THREE.Mesh(hGeo,new THREE.MeshStandardMaterial({map:tex,roughness:.55,metalness:.01})));
 
-  // 下颌铰链（极轻 — 只旋转下唇以下）
+  // 下颌铰链（极轻）
   const jaw=new THREE.Group();jaw.position.y=hH*.18;jaw.position.z=.04;head.add(jaw);
   const mouth=new THREE.Group();jaw.add(mouth);
   const cG=new THREE.PlaneGeometry(hW*.12,hH*.04);const cM=new THREE.MeshBasicMaterial({color:"#050201",transparent:true,opacity:0});const cav=new THREE.Mesh(cG,cM);mouth.add(cav);
   const tG=new THREE.PlaneGeometry(hW*.09,hH*.016);const tM=new THREE.MeshBasicMaterial({color:"#ece5db",transparent:true,opacity:0});const tee=new THREE.Mesh(tG,tM);tee.position.y=hH*.005;tee.position.z=.005;mouth.add(tee);
 
+  // 眼睛高光 — 非对称
   const eyeHL=new THREE.Group();eyeHL.position.set(0,hH*.12,.07);head.add(eyeHL);
   const hlG=new THREE.SphereGeometry(.01,8,8),hlM=new THREE.MeshBasicMaterial({color:"#fff"});
-  const hLl=new THREE.Mesh(hlG,hlM);hLl.position.set(-hW*.065,0,0);eyeHL.add(hLl);
-  const hLr=new THREE.Mesh(hlG,hlM);hLr.position.set(hW*.065,0,0);eyeHL.add(hLr);
+  const hLl=new THREE.Mesh(new THREE.SphereGeometry(.011,8,8),hlM);hLl.position.set(-hW*.065,0,0);eyeHL.add(hLl); // 左眼略大
+  const hLr=new THREE.Mesh(new THREE.SphereGeometry(.009,8,8),hlM);hLr.position.set(hW*.065,0,0);eyeHL.add(hLr); // 右眼略小
 
   const sh=new THREE.Group();sh.position.y=-hH*.44;bodyPivot.add(sh);
   const sG=new THREE.PlaneGeometry(hW*2,hH*.38);const sp=sG.attributes.position;
@@ -87,83 +108,116 @@ export async function generateTalkingVideo(
   const aL=new THREE.Group(),aR=new THREE.Group();aL.position.set(-hW*.68,-hH*.52,-.05);aR.position.set(hW*.68,-hH*.52,-.05);bodyPivot.add(aL);bodyPivot.add(aR);
   aL.add(new THREE.Mesh(aG,aM));aR.add(new THREE.Mesh(aG,aM));
 
-  const pN=25,pA=new Float32Array(pN*3);
+  // 粒子背景
+  const pN=30,pA=new Float32Array(pN*3);
   for(let i=0;i<pN;i++){pA[i*3]=(Math.random()-.5)*7;pA[i*3+1]=(Math.random()-.5)*7;pA[i*3+2]=Math.random()*5-1.5}
   const pG=new THREE.BufferGeometry();pG.setAttribute("position",new THREE.BufferAttribute(pA,3));
   const pt=new THREE.Points(pG,new THREE.PointsMaterial({color:"#ffe0c0",size:.016,transparent:true,opacity:.3,blending:THREE.AdditiveBlending}));scene.add(pt);
+
+  // ── 电影级剪辑元素 ───────────────────
+
+  // 片头大字 — 从天上砸下来
+  const titleTex=makeTextTexture("AI 口播",72,"#ffffff","transparent");
+  const titlePlane=new THREE.Mesh(
+    new THREE.PlaneGeometry(3,1.2),
+    new THREE.MeshBasicMaterial({map:titleTex,transparent:true,opacity:.9,depthTest:false,depthWrite:false})
+  );
+  titlePlane.position.set(0,1.8,1);titlePlane.renderOrder=999;titlePlane.material.depthTest=false;
+  scene.add(titlePlane);
+
+  // 浮动图标
+  const icons=["✨","🔥","💡","🎯","⚡","💎"];
+  const iconMeshes=icons.map((emoji,i)=>{
+    const itex=makeIconTexture(emoji);
+    const m=new THREE.Mesh(new THREE.PlaneGeometry(.25,.25),new THREE.MeshBasicMaterial({map:itex,transparent:true,opacity:.7,depthTest:false,depthWrite:false}));
+    m.position.set((i-icons.length/2)*.4+.2,Math.random()*.8-.4,Math.random()*.5+.5);
+    m.renderOrder=998;m.material.depthTest=false;
+    scene.add(m);
+    return m;
+  });
 
   // ── 录制 ─────────────────────────────────
   const stream=r.domElement.captureStream(30);
   const rec=new MediaRecorder(stream,{mimeType:"video/webm;codecs=vp9"});const chunks:Blob[]=[];rec.ondataavailable=e=>chunks.push(e.data);
   const audio=new Audio(URL.createObjectURL(audioBlob));
 
-  // ── 工具 ────────────────────────────
   const ra=(a:number,b:number)=>a+Math.floor(Math.random()*(b-a+1));
-
-  // ── 状态：全部用计时器 ──────────────
   let pV:number[]=V.R;
   let gazeX=0,gazeY=0,gazeAway=false,gazeTimer=ra(90,200);
-  let blinkCountdown=ra(40,100); // 距下次眨眼的确切帧数
-  let blinkLeft=false,blinkRight=false,blinkFrame=0;
+  let blinkCountdown=ra(40,100),blinkLeft=false,blinkFrame=0;
   let wShiftDir=0,wShiftTimer=ra(200,400);
   let saccadeX=0,saccadeY=0,saccadeTimer=0;
 
   const S={
     neckY:new Sp(10,.8),neckT:new Sp(7,.76),nod:new Sp(14,.73),bob:new Sp(5,.84),
     breath:new Sp(3,.88),mouthO:new Sp(22,.68),mouthW:new Sp(19,.7),
-    jawHinge:new Sp(16,.72),brow:new Sp(11,.78),armSwing:new Sp(4,.85),
-    lean:new Sp(4,.86),settle:new Sp(2,.92),inhale:new Sp(6,.8),
-    breathSmooth:new Sp(1,.95), // 平滑呼吸过渡
+    jawHinge:new Sp(16,.72),browL:new Sp(11,.78),browR:new Sp(11,.78),
+    armSwing:new Sp(4,.85),lean:new Sp(4,.86),settle:new Sp(2,.92),
+    inhale:new Sp(6,.8),breathSmooth:new Sp(1,.95),
   };
 
   let st=0,fr=0;
+
   return new Promise(resolve=>{
     rec.onstop=()=>resolve(new Blob(chunks,{type:"video/webm"}));
 
     function anim(){
-      const t=(Date.now()-st)/1000;if(t>P.duration+.5){rec.stop();return;}
+      const t=(Date.now()-st)/1000;if(t>P.duration+.8){rec.stop();return;}
       fr++;const dt=Math.min(1/30,.05);
       const i=Math.min(Math.floor(t*30),P.bands[0].length-1);
       const lo=P.bands[0][i]??0,mi=P.bands[1][i]??0,hi=P.bands[2][i]??0;
       const on=P.onsets[i]??0,sil=P.silence[i]??0,energy=lo+mi+hi;
       const speaking=energy>.025,longSil=sil>15,phraseEnd=!speaking&&sil>0&&sil<3;
 
-      // ── 行为：计时器驱动 ──────────────
-      // 休息
+      // 片头大字动画 — 0-1.5秒砸落
+      if(t<.3){
+        titlePlane.position.y=1.8-t*8; // 快速下落
+        titlePlane.material.opacity=Math.min(1,t/.15);
+      }else if(t<1.5){
+        titlePlane.position.y=-.5+Math.sin((t-.3)*6)*.1; // 弹跳
+        titlePlane.material.opacity=1-(t-.3)/1.2; // 渐隐
+      }else{
+        titlePlane.material.opacity=0;
+      }
+
+      // 浮动图标
+      iconMeshes.forEach((m,i)=>{
+        m.position.y+=Math.sin(t*2+i)*.003; // 上下浮动
+        m.rotation.z+=.01;
+        m.material.opacity=.5+Math.sin(t*3+i)*.3;
+      });
+
+      // ── 人物行为（计时器驱动）──────────
       S.settle.t=speaking?0:1;const settle=S.settle.up(dt);
-      // 平滑呼吸
       S.breathSmooth.t=speaking?.4:0;
-      const breathSuppress=S.breathSmooth.up(dt);
-      S.breath.t=Math.sin(t*1.55)*.5*(1-breathSuppress*.6);
-      // 前吸气
-      if(speaking&&sil>8)S.inhale.t=.6;else S.inhale.t*=0;
-      // 身体
+      S.breath.t=Math.sin(t*1.55)*.5*(1-S.breathSmooth.up(dt)*.6);
+      if(speaking&&sil>8)S.inhale.t=.5;else S.inhale.t*=0;
       S.bob.t=Math.sin(t*.9)*.02+Math.sin(t*1.6)*.015;
-      // 视线
+
       gazeTimer--;if(gazeTimer<=0){gazeAway=longSil;gazeTimer=gazeAway?ra(30,90):ra(90,200);}
       const gtX=gazeAway?ra(-6,6):0,gtY=gazeAway?ra(-3,3):0;
       gazeX+=(gtX-gazeX)*.06;gazeY+=(gtY-gazeY)*.06;
-      // 微扫视
+
       saccadeTimer--;if(saccadeTimer<=0){saccadeX=(Math.random()-.5)*2;saccadeY=(Math.random()-.5)*1.5;saccadeTimer=ra(5,12);}
-      // 眨眼
+
       blinkCountdown--;if(blinkCountdown<=0){blinkLeft=true;blinkFrame=3;blinkCountdown=ra(40,120);}
       if(blinkFrame>0){blinkFrame--}else{blinkLeft=false;}
-      blinkRight=blinkLeft&&blinkFrame===1; // 右眼晚1帧
-      if(speaking&&energy>.08)blinkCountdown+=2; // 说话时推迟眨眼
-      if(phraseEnd&&Math.random()<.5){blinkLeft=true;blinkFrame=3;blinkCountdown=ra(40,100);} // 句末眨眼
-      // 重心
+      if(speaking&&energy>.08)blinkCountdown+=2;
+      if(phraseEnd&&Math.random()<.5){blinkLeft=true;blinkFrame=3;blinkCountdown=ra(40,100);}
+
       wShiftTimer--;if(wShiftTimer<=0&&settle>.4){wShiftDir=(Math.random()-.5)*2;wShiftTimer=ra(200,400);}
       S.lean.t=wShiftDir*.015*(1-settle);
-      // 点头
       if(on>.5&&speaking)S.nod.t=-.025;else S.nod.t*=.9;
-      // 颈
       S.neckY.t=Math.sin(t*.42+1.1)*.01+S.bob.p*.4;S.neckT.t=Math.sin(t*.28)*.015+Math.sin(t*.7)*.007;
-      // 嘴
+
       const tv=vis(lo,mi,hi);const cv=pV.map((v,j)=>v+(tv[j]-v)*.28);pV=cv;
       const[mO,mW]=cv;
       S.mouthO.t=speaking?mO*Math.min(energy*18,2.2):0;S.mouthW.t=speaking?mW:0;
-      S.jawHinge.t=speaking?mO*Math.min(energy*4,.6):0; // 极轻微的铰链
-      S.brow.t=(energy>.07&&speaking)?1:0;
+      S.jawHinge.t=speaking?mO*Math.min(energy*4,.6):0;
+
+      // 眉毛 — 非对称：左眉略活跃
+      const browTarget=(energy>.07&&speaking)?1:0;
+      S.browL.t=browTarget*1.05;S.browR.t=browTarget*.95;
       S.armSwing.t=Math.sin(t*1.4)*.02*(1-settle*.5);
 
       for(const s of Object.values(S))s.up(dt);
@@ -172,32 +226,34 @@ export async function generateTalkingVideo(
       const ss=1-settle*.025;bodyPivot.scale.set(ss,ss,ss);bodyPivot.position.y=settle*-.04;bodyPivot.rotation.z=S.lean.p;
       sh.position.y=-hH*.44+S.breath.p*.03+S.inhale.p*.03;sh.scale.set(1+S.breath.p*.02+S.inhale.p*.02,1,1);
       to.position.y=-hH*.68+S.breath.p*.03+S.inhale.p*.02;
-      aL.rotation.z=S.armSwing.p;aR.rotation.z=-S.armSwing.p;
+      aL.rotation.z=S.armSwing.p*1.01;aR.rotation.z=-S.armSwing.p*.99; // 非对称手臂
       neck.position.set(S.lean.p*.2,S.bob.p+S.neckY.p,0);neck.rotation.set(0,S.neckT.p,0);
       head.rotation.set(S.nod.p,S.neckT.p*.2,S.neckT.p*.35-S.lean.p*.25);
 
-      // 下颌 — 极轻旋转
-      jaw.rotation.x=S.jawHinge.p*.025;
+      // 下颌铰链 — 极轻旋转(0.015)
+      jaw.rotation.x=S.jawHinge.p*.015;
 
       const ms=Math.max(.03,S.mouthO.p);
+      const asymMouth=1+S.mouthW.p*.003; // 0.3% 非对称
       cav.scale.set(1+S.mouthW.p*.4,ms,1);cM.opacity=Math.min(ms*.35,.4);
-      tee.scale.set(1+S.mouthW.p*.25,Math.min(ms*.45,1),1);tM.opacity=ms>.2?Math.min(ms*.25,.45):0;
+      tee.scale.set(asymMouth+S.mouthW.p*.22,Math.min(ms*.45,1),1);tM.opacity=ms>.2?Math.min(ms*.25,.45):0;
 
       // 眼
-      eyeHL.position.y=hH*.12+(blinkLeft?-.008:0);
-      hLl.scale.set(blinkLeft?.04:1,1,1);hLr.scale.set(blinkRight?.04:1,1,1);
-      eyeHL.position.x=saccadeX*.001;eyeHL.position.y+=saccadeY*.0008;
+      const blinkR=blinkLeft&&blinkFrame===1;
+      eyeHL.position.y=hH*.12+(blinkLeft?-.008:0)+saccadeY*.0008;
+      hLl.scale.set(blinkLeft?.04:1,1,1);hLr.scale.set(blinkR?.04:1,1,1);
+      eyeHL.position.x=saccadeX*.001;
 
       cam.position.x+=(gazeX*.001+saccadeX*.0003-cam.position.x)*.08;
       cam.position.y+=(gazeY*.0008+S.bob.p*.2-cam.position.y)*.08;
 
-      // ── 剪辑效果 ──────────────────────
-      // Ken Burns 慢推镜 — 3.6→3.4 缓慢推进
-      const zoomProgress=t/P.duration;
-      const targetZ=3.6-zoomProgress*.2; // 全程推进 0.2 单位
-      cam.position.z+=(targetZ-cam.position.z)*.02; // 平滑
+      // Ken Burns 缓推
+      const zp=P.duration>0?t/P.duration:0;
+      cam.position.z+=(3.6-zp*.2-cam.position.z)*.02;
 
-      key.intensity=75+S.brow.p*5;rim.intensity=28+energy*6;
+      // 暖色滤镜 — 光照随时间微暖
+      key.intensity=75+S.browL.p*5;key.color.setHSL(.12,.9,.55+Math.sin(t*.3)*.02);
+      rim.intensity=28+energy*6;
       pt.rotation.y+=.001;pt.rotation.x+=.0006;
 
       r.render(scene,cam);requestAnimationFrame(anim);
