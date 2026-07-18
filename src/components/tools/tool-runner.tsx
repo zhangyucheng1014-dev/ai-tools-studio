@@ -111,6 +111,7 @@ export function ToolRunner({ tool }: Props) {
 
         // ── 视频脚本 / 视频制作 ──────────────────────
         case "video-factory": {
+          if (!prompt.trim()) { setOutput("请输入视频主题或脚本创意。"); break; }
           if (modelReady) {
             setOutput("AI 正在生成视频脚本…");
             const result = await generateScript(prompt);
@@ -124,6 +125,7 @@ export function ToolRunner({ tool }: Props) {
 
         // ── 多平台发布 ─────────────────────────────────
         case "multi-platform-publish": {
+          if (!prompt.trim()) { setOutput("请输入视频标题或描述。"); break; }
           const platforms = String(options.platforms ?? "抖音");
           if (modelReady) {
             setOutput("正在生成各平台发布文案…");
@@ -167,13 +169,28 @@ export function ToolRunner({ tool }: Props) {
 
         // ── 视频下载 ─────────────────────────────────
         case "video-downloader": {
-          setOutput("正在解析视频链接…\n\n视频下载功能需要 TikTokDownloader 后端服务。\n当前为演示模式，请配置本地服务后使用。\n\n链接已记录: " + prompt);
+          if (!prompt.trim()) { setOutput("请粘贴短视频分享链接。"); break; }
+          setOutput("正在解析链接…");
+          try {
+            const proxy = "https://api.allorigins.win/raw?url=" + encodeURIComponent(prompt);
+            const res = await fetch(proxy);
+            if (res.ok) {
+              const html = await res.text();
+              const m = html.match(/src=["']([^"']+\.mp4[^"']*)["']/i) || html.match(/video[^>]+src=["']([^"']+)["']/i);
+              setOutput(m ? "✅ 提取到视频:\n" + m[1] + "\n\n右键复制链接下载" : "未能自动提取视频。\n建议安装 TikTokDownloader 获得完整功能。\n\n链接: " + prompt);
+            } else { setOutput("CORS 代理暂时不可用。\n安装 TikTokDownloader 后可使用完整功能。"); }
+          } catch { setOutput("网络请求失败。\n安装 TikTokDownloader 后可使用。\n\n链接: " + prompt); }
           break;
         }
 
         // ── 视频增强 ─────────────────────────────────
         case "video-enhancer": {
-          setOutput("视频增强功能需要 Real-ESRGAN 后端服务。\n当前为演示模式，请配置本地服务后使用。");
+          if (!file) { setOutput("请上传需要增强的视频文件（建议 MP4，小于 2 分钟）。"); break; }
+          setOutput("正在分析视频并增强画质…\n（首次处理较慢，请耐心等待）");
+          const { enhanceVideo } = await import("@/services/video-enhance");
+          const result = await enhanceVideo(file, { sharpen:0.5, contrast:1.1, saturation:1.1, onProgress:(m)=>setOutput(m) });
+          if (result) { setAudioBlob(result); setOutput("✅ 视频增强完成！点击下方播放或下载。"); }
+          else { setError("增强失败，请重试。"); }
           break;
         }
 
@@ -194,8 +211,8 @@ export function ToolRunner({ tool }: Props) {
   return (
     <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
       <div className="grid gap-4">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-[var(--muted)] hover:text-[var(--fg)] transition-colors">
-          <ArrowLeft size={16} /> 返回
+        <Link href="/" className="mb-2 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--muted)] hover:bg-black/5 hover:text-[var(--fg)] transition-colors">
+          <ArrowLeft size={16} /> 返回首页
         </Link>
 
         {/* 性能提示 */}
