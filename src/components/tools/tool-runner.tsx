@@ -183,14 +183,20 @@ export function ToolRunner({ tool }: Props) {
         case "video-downloader": {
           if (!prompt.trim()) { setOutput("请粘贴短视频分享链接。"); break; }
           setOutput("正在解析链接…");
+          // 优先用 TikTokDownloader 本地
+          try {
+            const apiRes = await fetch("http://localhost:8000/api/ttk/download", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({url:prompt}) });
+            if(apiRes.ok){ const d=await apiRes.json(); setOutput("✅ "+ (d.output||"下载成功")); break; }
+          } catch {}
+          // 降级 CORS 代理
           try {
             const proxy = "https://api.allorigins.win/raw?url=" + encodeURIComponent(prompt);
             const res = await fetch(proxy);
             if (res.ok) {
               const html = await res.text();
               const m = html.match(/src=["']([^"']+\.mp4[^"']*)["']/i) || html.match(/video[^>]+src=["']([^"']+)["']/i);
-              setOutput(m ? "✅ 提取到视频:\n" + m[1] + "\n\n右键复制链接下载" : "未能自动提取视频。\n建议安装 TikTokDownloader 获得完整功能。\n\n链接: " + prompt);
-            } else { setOutput("CORS 代理暂时不可用。\n安装 TikTokDownloader 后可使用完整功能。"); }
+              setOutput(m ? "✅ 提取到视频:\n" + m[1] + "\n\n右键复制链接下载" : "未能自动提取。\n安装 TikTokDownloader 后可用。\n\n链接: " + prompt);
+            } else { setOutput("CORS 代理不可用。\n安装 TikTokDownloader 后可使用。"); }
           } catch { setOutput("网络请求失败。\n安装 TikTokDownloader 后可使用。\n\n链接: " + prompt); }
           break;
         }
