@@ -1,18 +1,12 @@
 /**
- * 数字人口播 — 高保真 3D 人物渲染
+ * 数字人口播 — 自然行为引擎
  *
- * 人物模型:
- *   颈部关节 + 肩膀线 + 头颅（照片曲面）
- *   嘴部四层结构（上唇/下唇/牙齿/口腔）
- *   眼睛高光反射
- *
- * 动画系统:
- *   弹簧-阻尼物理（非正弦波）→ 更自然的运动
- *   呼吸驱动肩膀起伏 + 躯干微动
- *   音频 viseme 驱动唇形
- *
- * 渲染:
- *   Three.js 3D 场景 + 动态光照 + 电影特效
+ * 核心逻辑（不是随机，是真实的说话行为模式）:
+ *   句间停顿 → 眨眼 + 微点头（短语边界）
+ *   长停顿   → 视线移开"思考" + 重心转移
+ *   语速快   → 抑制眨眼（专注状态）
+ *   重音     → 眉毛微抬 + 头微前倾
+ *   不说话   → 逐渐回到休息姿态
  */
 
 import * as THREE from "three";
@@ -22,339 +16,297 @@ import { speakToBlob } from "./browser-tts";
 
 interface AudioProfile {
   duration: number;
-  bands: Float32Array[]; // [lo, mid, hi]
-  onsets: Float32Array;  // 音节起始检测
+  bands: Float32Array[];
+  onsets: Float32Array;    // 音节起始
+  silence: Float32Array;   // 静音标记
 }
 
 async function analyzeAudio(blob: Blob, fps = 30): Promise<AudioProfile> {
-  const ctx = new OfflineAudioContext(1, 48000, 48000);
-  const raw = await ctx.decodeAudioData(await blob.arrayBuffer());
-  const data = raw.getChannelData(0);
-  const frameSize = Math.floor(48000 / fps);
-  const total = Math.ceil(data.length / frameSize);
-  const bands: Float32Array[] = [new Float32Array(total), new Float32Array(total), new Float32Array(total)];
-  const onsets = new Float32Array(total);
-  let prevEnergy = 0;
+  const c = new OfflineAudioContext(1, 48000, 48000);
+  const buf = await c.decodeAudioData(await blob.arrayBuffer());
+  const d = buf.getChannelData(0);
+  const fz = Math.floor(48000 / fps);
+  const total = Math.ceil(d.length / fz);
+  const B = [new Float32Array(total), new Float32Array(total), new Float32Array(total)];
+  const O = new Float32Array(total);
+  const S = new Float32Array(total);
+  let prevE = 0, silentFrames = 0;
+
   for (let i = 0; i < total; i++) {
-    const s = i * frameSize, e = Math.min(s + frameSize, data.length);
-    let lo = 0, mi = 0, hi = 0, prev = 0;
+    const s = i * fz, e = Math.min(s + fz, d.length);
+    let lo = 0, mi = 0, hi = 0, pr = 0;
     for (let j = s; j < e; j++) {
-      const v = data[j], d = Math.abs(v - prev);
-      if (d < 0.06) lo += Math.abs(v); else if (d < 0.18) mi += Math.abs(v); else hi += Math.abs(v);
-      prev = v;
+      const v = d[j], df = Math.abs(v - pr);
+      if (df < 0.06) lo += Math.abs(v); else if (df < 0.18) mi += Math.abs(v); else hi += Math.abs(v); pr = v;
     }
     const n = e - s;
-    bands[0][i] = (lo / n) * 4; bands[1][i] = (mi / n) * 3.5; bands[2][i] = (hi / n) * 2.5;
-    const energy = bands[0][i] + bands[1][i] + bands[2][i];
-    onsets[i] = energy > prevEnergy * 1.8 ? 1 : 0;
-    prevEnergy = energy;
+    B[0][i] = lo / n * 4; B[1][i] = mi / n * 3.5; B[2][i] = hi / n * 2.5;
+    const curE = B[0][i] + B[1][i] + B[2][i];
+    O[i] = curE > prevE * 1.8 ? 1 : 0;
+    // 静音检测: 连续低能量
+    if (curE < 0.025) { silentFrames++; } else { silentFrames = 0; }
+    S[i] = silentFrames;
+    prevE = curE;
   }
-  return { duration: raw.duration, bands, onsets };
+  return { duration: buf.duration, bands: B, onsets: O, silence: S };
 }
 
-// ── 弹簧物理 ──────────────────────────────────────────────────
+// ── 弹簧 ──────────────────────────────────────────────────────
 
-class Spring {
-  pos = 0; vel = 0; target = 0;
-  constructor(readonly stiffness: number, readonly damping: number) {}
-  update(dt: number) {
-    const force = (this.target - this.pos) * this.stiffness;
-    this.vel += force * dt;
-    this.vel *= this.damping;
-    this.pos += this.vel * dt;
-    return this.pos;
-  }
+class Sp { p=0;v=0;t=0;constructor(readonly k:number, readonly d:number){}
+  up(dt:number){this.v+=(this.t-this.p)*this.k*dt;this.v*=this.d;this.p+=this.v*dt;return this.p}
 }
 
 // ── Viseme ────────────────────────────────────────────────────
 
-type Viseme = [number, number, number, number]; // [张嘴, 嘴宽, 圆唇, 上唇]
-
-const V: Record<string, Viseme> = {
-  A: [1.0, 0.3,  0.1, 0.0],
-  E: [0.4, 1.0,  0.0, 0.35],
-  I: [0.35, 0.8, 0.0, 0.3],
-  O: [0.5, 0.0,  1.0, 0.25],
-  U: [0.2, -0.3, 1.0, 0.2],
-  R: [0.15, 0.0, 0.0, 0.05],
-};
-
-function getViseme(lo: number, mi: number, hi: number): Viseme {
-  const t = lo + mi + hi;
-  if (t < 0.03) return V.R;
-  if (lo > mi * 1.5 && lo > hi * 2) return V.A;
-  if (lo > mi && lo > hi * 1.5) return V.O;
-  if (mi > lo * 1.3 && mi > hi) return V.E;
-  if (mi > lo && mi > hi * 1.3) return V.I;
+type Vis=[number,number,number,number];
+const V: Record<string,Vis>={ A:[1,.3,.1,0],E:[.4,1,0,.35],I:[.35,.8,0,.3],O:[.5,0,1,.25],U:[.2,-.3,1,.2],R:[.15,0,0,.05] };
+function vis(lo:number,mi:number,hi:number):Vis{
+  const t=lo+mi+hi; if(t<.03)return V.R;
+  if(lo>mi*1.5&&lo>hi*2)return V.A; if(lo>mi&&lo>hi*1.5)return V.O;
+  if(mi>lo*1.3&&mi>hi)return V.E; if(mi>lo&&mi>hi*1.3)return V.I;
   return V.R;
 }
 
-// ── 主渲染 ──────────────────────────────────────────────────
+// ── 主函数 ──────────────────────────────────────────────────
 
 export async function generateTalkingVideo(
-  photoUrl: string,
-  script: string,
-  aspectRatio: string,
+  photoUrl: string, script: string, aspectRatio: string,
   onProgress?: (msg: string) => void
 ): Promise<Blob | null> {
-  onProgress?.("加载照片…");
-  const loader = new THREE.TextureLoader();
-  let texture: THREE.Texture;
-  try { texture = await loader.loadAsync(photoUrl); } catch { return null; }
+  onProgress?.("加载…");
+  const ld = new THREE.TextureLoader();
+  let tex: THREE.Texture;
+  try { tex = await ld.loadAsync(photoUrl); } catch { return null; }
 
-  onProgress?.("生成配音…");
+  onProgress?.("配音…");
   const audioBlob = await speakToBlob(script);
   if (!audioBlob) return null;
 
   onProgress?.("分析音频…");
-  const profile = await analyzeAudio(audioBlob, 30);
+  const P = await analyzeAudio(audioBlob, 30);
 
-  onProgress?.("渲染 3D 人物…");
+  onProgress?.("渲染…");
+  const sz: Record<string,[number,number]>={ "9:16（竖屏）":[720,1280],"16:9（横屏）":[1280,720],"2.35:1（电影宽幅）":[1280,544] };
+  const [W,H]=sz[aspectRatio]??[720,1280];
 
-  const sizes: Record<string, [number, number]> = {
-    "9:16（竖屏）": [720, 1280], "16:9（横屏）": [1280, 720], "2.35:1（电影宽幅）": [1280, 544],
-  };
-  const [w, h] = sizes[aspectRatio] ?? [720, 1280];
-
-  // ── Scene ──────────────────────────────────
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setSize(w, h); renderer.setPixelRatio(1);
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.0;
-  renderer.outputColorSpace = THREE.SRGBColorSpace;
-
+  const r = new THREE.WebGLRenderer({ antialias:true });
+  r.setSize(W,H);r.setPixelRatio(1);r.toneMapping=THREE.ACESFilmicToneMapping;r.toneMappingExposure=1;r.outputColorSpace=THREE.SRGBColorSpace;
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color("#0b0b12");
-  scene.fog = new THREE.Fog("#0b0b12", 2.5, 9);
+  const cam = new THREE.PerspectiveCamera(28,W/H,.1,20);cam.position.set(0,.02,3.8);cam.lookAt(0,-.08,0);
 
-  const camera = new THREE.PerspectiveCamera(30, w / h, 0.1, 20);
-  camera.position.set(0, 0.0, 3.6);
-  camera.lookAt(0, -0.05, 0);
+  // 摄影棚
+  const wG=()=>{ const c=document.createElement("canvas");c.width=256;c.height=256;const x=c.getContext("2d")!,
+    g=x.createLinearGradient(0,0,0,256);g.addColorStop(0,"#3a3040");g.addColorStop(.4,"#2a2430");g.addColorStop(1,"#1a1820");
+    x.fillStyle=g;x.fillRect(0,0,256,256);return new THREE.CanvasTexture(c); };
+  const w=new THREE.Mesh(new THREE.PlaneGeometry(12,8),new THREE.MeshBasicMaterial({map:wG()}));w.position.set(0,1.5,-3);scene.add(w);
+  const fG=()=>{ const c=document.createElement("canvas");c.width=256;c.height=64;const x=c.getContext("2d")!,
+    g=x.createLinearGradient(0,0,0,64);g.addColorStop(0,"#141218");g.addColorStop(1,"#0c0a10");
+    x.fillStyle=g;x.fillRect(0,0,256,64);return new THREE.CanvasTexture(c); };
+  const f=new THREE.Mesh(new THREE.PlaneGeometry(12,4),new THREE.MeshBasicMaterial({map:fG()}));f.position.set(0,-1.8,-2);f.rotation.x=-Math.PI/3;scene.add(f);
 
-  // ── Lights ─────────────────────────────────
-  const key = new THREE.PointLight("#ffe4cc", 70, 7);
-  key.position.set(0.6, 0.9, 2.2); scene.add(key);
-  const fill = new THREE.PointLight("#c0d0ff", 18, 5);
-  fill.position.set(-0.7, -0.3, 1.6); scene.add(fill);
-  const rim = new THREE.PointLight("#ffffff", 25, 3.5);
-  rim.position.set(0, -0.6, -1.2); scene.add(rim);
-  const amb = new THREE.AmbientLight("#282430", 1.8);
-  scene.add(amb);
+  // 灯光
+  const key=new THREE.PointLight("#ffe8d0",75,7);key.position.set(.7,1,2.5);scene.add(key);
+  const fill=new THREE.PointLight("#c8d8ff",16,5);fill.position.set(-.6,-.2,1.8);scene.add(fill);
+  const rim=new THREE.PointLight("#fff",28,4);rim.position.set(0,-.7,-1);scene.add(rim);
+  scene.add(new THREE.AmbientLight("#2a2535",2));
 
-  // ── 照片尺寸 ───────────────────────────────
-  const img = (texture as any).image as HTMLImageElement | undefined;
-  const ratio = img ? img.width / img.height : 0.72;
-  const headH = 2.0, headW = headH * ratio;
+  // 照片
+  const im=(tex as any).image as HTMLImageElement|undefined;
+  const rat=im?im.width/im.height:.7;
+  const hH=2.2,hW=hH*rat;
 
-  // ── 颈部 pivot ─────────────────────────────
-  const neckPivot = new THREE.Group();
-  neckPivot.position.y = -headH * 0.42;
-  scene.add(neckPivot);
+  // 身体层级
+  const bodyPivot=new THREE.Group();scene.add(bodyPivot);
+  const neck=new THREE.Group();neck.position.y=-hH*.4;bodyPivot.add(neck);
+  const head=new THREE.Group();head.position.y=hH*.4;neck.add(head);
 
-  // ── 头部组（挂在颈关节上）────────────────
-  const headGroup = new THREE.Group();
-  headGroup.position.y = headH * 0.42;
-  neckPivot.add(headGroup);
+  const hGeo=new THREE.PlaneGeometry(hW,hH,24,24);
+  const hp=hGeo.attributes.position;
+  for(let i=0;i<hp.count;i++){const x=hp.getX(i),y=hp.getY(i);hp.setZ(i,(x*x*.05+y*y*.025)*.3);}
+  hGeo.computeVertexNormals();
+  head.add(new THREE.Mesh(hGeo,new THREE.MeshStandardMaterial({map:tex,roughness:.55,metalness:.01})));
 
-  // 头部曲面
-  const headGeo = new THREE.PlaneGeometry(headW, headH, 20, 20);
-  const pos = headGeo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), y = pos.getY(i);
-    pos.setZ(i, (x * x * 0.08 + y * y * 0.04) * 0.4);
-  }
-  headGeo.computeVertexNormals();
-  const headMat = new THREE.MeshStandardMaterial({ map: texture, roughness: 0.6, metalness: 0.01 });
-  const headMesh = new THREE.Mesh(headGeo, headMat);
-  headGroup.add(headMesh);
+  // 嘴
+  const mouth=new THREE.Group();mouth.position.y=hH*.21;mouth.position.z=.06;head.add(mouth);
+  const cG=new THREE.PlaneGeometry(hW*.14,hH*.05);const cM=new THREE.MeshBasicMaterial({color:"#050201",transparent:true,opacity:0});const cav=new THREE.Mesh(cG,cM);mouth.add(cav);
+  const tG=new THREE.PlaneGeometry(hW*.11,hH*.02);const tM=new THREE.MeshBasicMaterial({color:"#ece5db",transparent:true,opacity:0});const tee=new THREE.Mesh(tG,tM);tee.position.y=hH*.006;tee.position.z=.005;mouth.add(tee);
+  const uG=new THREE.PlaneGeometry(hW*.15,hH*.016);const uM=new THREE.MeshBasicMaterial({color:"#1c110c",transparent:true,opacity:0});const uL=new THREE.Mesh(uG,uM);uL.position.y=hH*.012;uL.position.z=.004;mouth.add(uL);
 
-  // ── 嘴部组 ─────────────────────────────────
-  const mouthGroup = new THREE.Group();
-  mouthGroup.position.y = headH * 0.22;
-  mouthGroup.position.z = 0.06;
-  headGroup.add(mouthGroup);
+  // 肩+躯干+手臂
+  const sh=new THREE.Group();sh.position.y=-hH*.44;bodyPivot.add(sh);
+  const sG=new THREE.PlaneGeometry(hW*2,hH*.38);const sp=sG.attributes.position;
+  for(let i=0;i<sp.count;i++){sp.setZ(i,-.1-Math.abs(sp.getX(i))*.14);}sG.computeVertexNormals();
+  sh.add(new THREE.Mesh(sG,new THREE.MeshStandardMaterial({color:"#1c1a1a",roughness:.88,transparent:true,opacity:.6})));
+  const to=new THREE.Group();to.position.y=-hH*.68;bodyPivot.add(to);
+  const tG2=new THREE.PlaneGeometry(hW*1.3,hH*.5);const tp=tG2.attributes.position;
+  for(let i=0;i<tp.count;i++){tp.setZ(i,-.15-Math.abs(tp.getX(i))*.11);}tG2.computeVertexNormals();
+  to.add(new THREE.Mesh(tG2,new THREE.MeshStandardMaterial({color:"#1a1818",roughness:.9,transparent:true,opacity:.5})));
+  const aG=new THREE.CylinderGeometry(.05,.06,hH*.32,8);const aM=new THREE.MeshStandardMaterial({color:"#1c1a1a",roughness:.85,transparent:true,opacity:.5});
+  const aL=new THREE.Group(),aR=new THREE.Group();aL.position.set(-hW*.68,-hH*.52,-.05);aR.position.set(hW*.68,-hH*.52,-.05);bodyPivot.add(aL);bodyPivot.add(aR);
+  aL.add(new THREE.Mesh(aG,aM));aR.add(new THREE.Mesh(aG,aM));
 
-  // 口腔（暗部）
-  const cavityGeo = new THREE.PlaneGeometry(headW * 0.16, headH * 0.06);
-  const cavityMat = new THREE.MeshBasicMaterial({ color: "#060302", transparent: true, opacity: 0 });
-  const cavity = new THREE.Mesh(cavityGeo, cavityMat);
-  mouthGroup.add(cavity);
+  // 眼睛高光
+  const eH=new THREE.Group();eH.position.set(0,hH*.12,.07);head.add(eH);
+  const hlG=new THREE.SphereGeometry(.012,8,8),hlM=new THREE.MeshBasicMaterial({color:"#fff"});
+  const hL=new THREE.Mesh(hlG,hlM);hL.position.set(-hW*.07,0,0);eH.add(hL);
+  const hR=new THREE.Mesh(hlG,hlM);hR.position.set(hW*.07,0,0);eH.add(hR);
 
-  // 牙齿
-  const teethGeo = new THREE.PlaneGeometry(headW * 0.13, headH * 0.025);
-  const teethMat = new THREE.MeshBasicMaterial({ color: "#e8e0d8", transparent: true, opacity: 0 });
-  const teeth = new THREE.Mesh(teethGeo, teethMat);
-  teeth.position.y = headH * 0.008;
-  teeth.position.z = 0.005;
-  mouthGroup.add(teeth);
+  // 粒子
+  const pN=30,pA=new Float32Array(pN*3);
+  for(let i=0;i<pN;i++){pA[i*3]=(Math.random()-.5)*7;pA[i*3+1]=(Math.random()-.5)*7;pA[i*3+2]=Math.random()*5-1.5;}
+  const pG=new THREE.BufferGeometry();pG.setAttribute("position",new THREE.BufferAttribute(pA,3));
+  const pt=new THREE.Points(pG,new THREE.PointsMaterial({color:"#ffe0c0",size:.016,transparent:true,opacity:.35,blending:THREE.AdditiveBlending}));scene.add(pt);
 
-  // 上唇阴影
-  const upperLipGeo = new THREE.PlaneGeometry(headW * 0.17, headH * 0.02);
-  const upperLipMat = new THREE.MeshBasicMaterial({ color: "#1a100c", transparent: true, opacity: 0 });
-  const upperLip = new THREE.Mesh(upperLipGeo, upperLipMat);
-  upperLip.position.y = headH * 0.015;
-  upperLip.position.z = 0.003;
-  mouthGroup.add(upperLip);
+  // ── 录制 ─────────────────────────────────
+  const stream=r.domElement.captureStream(30);
+  const rec=new MediaRecorder(stream,{mimeType:"video/webm;codecs=vp9"});
+  const chunks:Blob[]=[];rec.ondataavailable=e=>chunks.push(e.data);
+  const audio=new Audio(URL.createObjectURL(audioBlob));
 
-  // ── 肩膀 ───────────────────────────────────
-  const shoulderGroup = new THREE.Group();
-  shoulderGroup.position.y = -headH * 0.48;
-  neckPivot.add(shoulderGroup);
+  // ── 行为状态机 ────────────────────────
+  let pV:number[]=V.R;                        // 前一帧viseme
+  let gazeX=0,gazeY=0;                       // 当前视线偏移
+  let gazeType:"camera"|"thinking"|"returning"="camera";
+  let gazeTimer=0;                            // 距下次视线转移
+  let blinkSuppress=false;                     // 说话中抑制眨眼
+  let weightShiftDir=0;                       // 重心偏移方向
+  let weightShiftTimer=0;                     // 距下次重心转移
+  let settleProgress=0;                       // 休息姿态渐进 [0-1]
 
-  const shoulderGeo = new THREE.PlaneGeometry(headW * 1.8, headH * 0.35);
-  // 弧形肩膀
-  const sp = shoulderGeo.attributes.position;
-  for (let i = 0; i < sp.count; i++) {
-    const x = sp.getX(i), y = sp.getY(i);
-    sp.setZ(i, -0.08 - Math.abs(x) * 0.15);
-  }
-  shoulderGeo.computeVertexNormals();
-  const shoulderMat = new THREE.MeshStandardMaterial({
-    color: "#1a1818", roughness: 0.85, metalness: 0.0, transparent: true, opacity: 0.65,
-  });
-  const shoulderMesh = new THREE.Mesh(shoulderGeo, shoulderMat);
-  shoulderGroup.add(shoulderMesh);
-
-  // ── 高光点（眼睛） ─────────────────────────
-  const highlightGroup = new THREE.Group();
-  highlightGroup.position.set(0, headH * 0.13, 0.07);
-  headGroup.add(highlightGroup);
-  const hlGeo = new THREE.SphereGeometry(0.015, 8, 8);
-  const hlMat = new THREE.MeshBasicMaterial({ color: "#ffffff" });
-  const hlL = new THREE.Mesh(hlGeo, hlMat);
-  hlL.position.set(-headW * 0.08, 0, 0); highlightGroup.add(hlL);
-  const hlR = new THREE.Mesh(hlGeo, hlMat);
-  hlR.position.set(headW * 0.08, 0, 0); highlightGroup.add(hlR);
-
-  // ── 粒子 ──────────────────────────────────
-  const pGeo = new THREE.BufferGeometry();
-  const n = 40, pArr = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { pArr[i*3] = (Math.random()-0.5)*6; pArr[i*3+1] = (Math.random()-0.5)*6; pArr[i*3+2] = Math.random()*4-1; }
-  pGeo.setAttribute("position", new THREE.BufferAttribute(pArr, 3));
-  const pMat = new THREE.PointsMaterial({ color: "#ffe4c0", size: 0.018, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending });
-  const particles = new THREE.Points(pGeo, pMat); scene.add(particles);
-
-  // ── MediaRecorder ──────────────────────────
-  const stream = renderer.domElement.captureStream(30);
-  const recorder = new MediaRecorder(stream, { mimeType: "video/webm;codecs=vp9" });
-  const chunks: Blob[] = [];
-  recorder.ondataavailable = e => chunks.push(e.data);
-  const audioEl = new Audio(URL.createObjectURL(audioBlob));
-
-  // ── 物理弹簧 ──────────────────────────────
-  const springs = {
-    neckY: new Spring(12, 0.82),
-    neckTilt: new Spring(8, 0.78),
-    headNod: new Spring(15, 0.75),
-    bodyBob: new Spring(6, 0.85),
-    shoulderBreath: new Spring(3, 0.9),
-    mouthOpen: new Spring(20, 0.7),
-    mouthWide: new Spring(18, 0.72),
-    browRaise: new Spring(12, 0.8),
+  const S={
+    neckY:new Sp(10,.8),neckT:new Sp(7,.76),nod:new Sp(14,.73),bob:new Sp(5,.84),
+    breath:new Sp(3,.88),mouthO:new Sp(22,.68),mouthW:new Sp(19,.7),brow:new Sp(11,.78),
+    armSwing:new Sp(4,.85),lean:new Sp(4,.86),settle:new Sp(2,.92),
   };
 
-  let sTime = 0, frame = 0;
-  let prevViseme: number[] = V.R;
-  let gX = 0, gY = 0, gtX = 0, gtY = 0, gTimer = 0;
-  let bPhase = 0, bTimer = 0;
+  let st=0,fr=0;
+  const ra=(a:number,b:number)=>a+Math.floor(Math.random()*(b-a+1));
 
-  return new Promise((resolve) => {
-    recorder.onstop = () => resolve(new Blob(chunks, { type: "video/webm" }));
+  return new Promise(resolve=>{
+    rec.onstop=()=>resolve(new Blob(chunks,{type:"video/webm"}));
 
-    function animate() {
-      const t = (Date.now() - sTime) / 1000;
-      if (t > profile.duration + 0.3) { recorder.stop(); return; }
-      frame++;
-      const dt = Math.min(1 / 30, 0.05);
+    function anim(){
+      const t=(Date.now()-st)/1000; if(t>P.duration+.5){rec.stop();return;}
+      fr++;const dt=Math.min(1/30,.05);
+      const i=Math.min(Math.floor(t*30),P.bands[0].length-1);
+      const lo=P.bands[0][i]??0,mi=P.bands[1][i]??0,hi=P.bands[2][i]??0;
+      const on=P.onsets[i]??0,sil=P.silence[i]??0,energy=lo+mi+hi;
+      const speaking=energy>.025;
+      const longSilence=sil>15;          // >0.5s 停顿
+      const phraseEnd=!speaking&&sil>0&&sil<3; // 刚从说话转入停顿
 
-      const idx = Math.min(Math.floor(t * 30), profile.bands[0].length - 1);
-      const lo = profile.bands[0][idx] ?? 0;
-      const mi = profile.bands[1][idx] ?? 0;
-      const hi = profile.bands[2][idx] ?? 0;
-      const onset = profile.onsets[idx] ?? 0;
-      const energy = lo + mi + hi;
+      // ── 行为逻辑层 ────────────────────
 
-      const targetViseme = getViseme(lo, mi, hi);
-      const viseme = prevViseme.map((v, i) => v + (targetViseme[i] - v) * 0.3);
-      prevViseme = viseme;
+      // 1. 休息姿态 — 不说话时逐渐回归
+      S.settle.t=speaking?0:1;
+      const settle=S.settle.up(dt);
 
-      // ── 弹簧驱动动画 ────────────────────
+      // 2. 视线 — 长沉默时"思考"看别处，说话时看镜头
+      gazeTimer--;
+      if(longSilence&&gazeType==="camera"&&gazeTimer<=0){
+        gazeType="thinking";gazeTimer=ra(30,90);
+      }else if(speaking&&gazeType!=="camera"){
+        gazeType="returning";gazeTimer=ra(8,20);
+      }else if(gazeTimer<=0&&gazeType==="returning"){
+        gazeType="camera";gazeTimer=ra(60,180);
+      }else if(gazeTimer<=0&&gazeType==="camera"){
+        gazeType="camera";gazeTimer=ra(60,180);
+      }
+      const gazeTargetX=gazeType==="thinking"?ra(-6,6):gazeType==="returning"?0:0;
+      const gazeTargetY=gazeType==="thinking"?ra(-3,3):0;
+      gazeX+=(gazeTargetX-gazeX)*.06;gazeY+=(gazeTargetY-gazeY)*.06;
+
+      // 3. 眨眼 — 句末眨眼，说话中抑制
+      if(phraseEnd){
+        // 短语结束立刻眨眼
+        if(Math.random()<.4){/*触发眨眼*/}
+      }
+      if(speaking&&energy>.06){blinkSuppress=true;}else{blinkSuppress=false;}
+      // 简化眨眼: 随机 + 句末触发
+      const shouldBlink=(!blinkSuppress&&fr%ra(60,180)===0)||(phraseEnd&&Math.random()<.6);
+
+      // 4. 重心转移 — 每 8-15 秒换一次
+      weightShiftTimer--;
+      if(weightShiftTimer<=0&&settle>.5){
+        weightShiftDir=(Math.random()-.5)*2;weightShiftTimer=ra(240,450);
+      }
+      S.lean.t=weightShiftDir*.02*(1-settle);
+
+      // 5. 呼吸 — 始终在，说话时被部分抑制
+      S.breath.t=Math.sin(t*1.55)*.5*(1-speaking*.4);
+
+      // 6. 身体微动
+      S.bob.t=Math.sin(t*.9)*.02+Math.sin(t*1.6)*.015;
+
+      // 7. 点头 — 只在音节起始时
+      if(on>.5&&speaking){S.nod.t=-.03;}else{S.nod.t*=.88;}
+
+      // 8. 颈
+      S.neckY.t=Math.sin(t*.42+1.1)*.01+S.bob.p*.4;
+      S.neckT.t=Math.sin(t*.28)*.015+Math.sin(t*.7)*.007;
+
+      // 9. 嘴
+      const tv=vis(lo,mi,hi);
+      const cv=pV.map((v,j)=>v+(tv[j]-v)*.28);pV=cv;
+      const[mO,mW]=cv;
+      S.mouthO.t=speaking?mO*Math.min(energy*18,2.2):0;
+      S.mouthW.t=speaking?mW:0;
+
+      // 10. 眉 — 重音时微抬
+      S.brow.t=(energy>.07&&speaking)?1:0;
+
+      // 11. 手臂 — 轻微摆动
+      S.armSwing.t=Math.sin(t*1.4)*.025*(1-settle*.6);
+
+      // 更新弹簧
+      for(const s of Object.values(S))s.update(dt);
+
+      // ── 应用动画 ────────────────────────
+
+      // 休息姿态 → 整体变小+下移
+      const settleScale=1-settle*.03;
+      bodyPivot.scale.set(settleScale,settleScale,settleScale);
+      bodyPivot.position.y=settle*-.06;
+      bodyPivot.rotation.z=S.lean.p;
+
       // 呼吸
-      springs.shoulderBreath.target = Math.sin(t * 1.6) * 0.6;
-      // 身体重心
-      springs.bodyBob.target = Math.sin(t * 0.9) * 0.03 + Math.sin(t * 1.7) * 0.02;
-      // 音节起始 → 头微点
-      if (onset > 0.5) springs.headNod.target = -0.04;
-      else springs.headNod.target *= 0.92;
-      // 颈部自然漂移
-      springs.neckY.target = Math.sin(t * 0.4 + 1.2) * 0.015 + springs.bodyBob.pos * 0.5;
-      springs.neckTilt.target = Math.sin(t * 0.33) * 0.02 + Math.sin(t * 0.8) * 0.01;
-      // 嘴型
-      const [mOpen, mWide, mRound] = viseme;
-      springs.mouthOpen.target = mOpen * Math.min(energy * 22, 2.5);
-      springs.mouthWide.target = mWide;
-      springs.browRaise.target = energy > 0.08 ? 1 : 0;
+      sh.position.y=-hH*.44+S.breath.p*.03;
+      sh.scale.set(1+S.breath.p*.02,1,1);
 
-      // 更新所有弹簧
-      for (const s of Object.values(springs)) s.update(dt);
+      // 躯干
+      to.position.y=-hH*.68+S.breath.p*.035;
 
-      // ── 眼睛 ───────────────────────────
-      gTimer--; if (gTimer <= 0) { gtX = (Math.random()-0.5)*3; gtY = (Math.random()-0.5)*2; gTimer = rand(40,120); }
-      gX += (gtX - gX) * 0.08; gY += (gtY - gY) * 0.08;
-      bTimer--; if (bTimer <= 0) { bPhase = bPhase===0 ? (bTimer=2,1) : bPhase===1 ? (bTimer=2,2) : 0; }
-      if (energy > 0.15) bPhase = 1;
+      // 手臂
+      aL.rotation.z=S.armSwing.p;aR.rotation.z=-S.armSwing.p;
 
-      // ── 应用动画 ───────────────────────
-      // 肩膀 — 呼吸起伏
-      shoulderGroup.position.y = -headH * 0.48 + springs.shoulderBreath.pos * 0.04;
-      shoulderGroup.scale.set(1 + springs.shoulderBreath.pos * 0.03, 1, 1);
+      // 颈+头
+      neck.position.set(S.lean.p*.25,S.bob.p+S.neckY.p,0);
+      neck.rotation.set(0,S.neckT.p,0);
+      head.rotation.set(S.nod.p,S.neckT.p*.2,S.neckT.p*.4);
 
-      // 颈关节
-      neckPivot.position.set(
-        springs.bodyBob.pos * 0.4,
-        springs.bodyBob.pos + springs.neckY.pos,
-        0
-      );
-      neckPivot.rotation.set(0, springs.neckTilt.pos, 0);
+      // 嘴
+      const ms=Math.max(.03,S.mouthO.p);
+      cav.scale.set(1+S.mouthW.p*.45,ms,1);cM.opacity=Math.min(ms*.4,.45);
+      tee.scale.set(1+S.mouthW.p*.3,Math.min(ms*.5,1),1);tM.opacity=ms>.22?Math.min(ms*.3,.5):0;
+      uL.scale.set(1+S.mouthW.p*.35,Math.min(ms*.25,1),1);uM.opacity=ms>.16?Math.min(ms*.2,.35):0;
 
-      // 头部
-      headGroup.rotation.set(
-        springs.headNod.pos,
-        springs.neckTilt.pos * 0.3,
-        springs.neckTilt.pos * 0.5
-      );
+      // 眼睛高光
+      eH.position.y=hH*.12+(shouldBlink?-.01:0);
+      eH.scale.set(shouldBlink?.06:1,1,1);
 
-      // 嘴部
-      const mouthScale = Math.max(0.05, springs.mouthOpen.pos);
-      cavity.scale.set(1 + springs.mouthWide.pos * 0.5, mouthScale, 1);
-      cavityMat.opacity = Math.min(mouthScale * 0.5, 0.5);
-      teeth.scale.set(1 + springs.mouthWide.pos * 0.4, Math.min(mouthScale * 0.6, 1), 1);
-      teethMat.opacity = mouthScale > 0.3 ? Math.min(mouthScale * 0.4, 0.6) : 0;
-      upperLip.scale.set(1 + springs.mouthWide.pos * 0.45, Math.min(mouthScale * 0.3, 1), 1);
-      upperLipMat.opacity = mouthScale > 0.2 ? Math.min(mouthScale * 0.25, 0.4) : 0;
+      // 相机
+      cam.position.x+=(gazeX*.001-cam.position.x)*.08;
+      cam.position.y+=(gazeY*.0008+S.bob.p*.2-cam.position.y)*.08;
 
-      // 高光
-      highlightGroup.position.y = headH * 0.13 + (bPhase === 1 ? -0.015 : 0);
-      highlightGroup.scale.set(bPhase === 1 ? 0.1 : 1, 1, 1);
+      // 光照
+      key.intensity=75+S.brow.p*5;rim.intensity=28+energy*6;
 
-      // 相机跟随眼睛扫视
-      camera.position.x += (gX * 0.0015 - camera.position.x) * 0.1;
-      camera.position.y += (gY * 0.001 + springs.bodyBob.pos * 0.3 - camera.position.y) * 0.1;
+      pt.rotation.y+=.001;pt.rotation.x+=.0006;
 
-      // 眉毛驱动光照
-      key.intensity = 70 + springs.browRaise.pos * 6;
-      rim.intensity = 25 + energy * 8;
-
-      // 粒子
-      particles.rotation.y += 0.0015;
-      particles.rotation.x += 0.0008;
-
-      renderer.render(scene, camera);
-      requestAnimationFrame(animate);
+      r.render(scene,cam);requestAnimationFrame(anim);
     }
 
-    recorder.start(); sTime = Date.now(); audioEl.play(); animate();
+    rec.start();st=Date.now();audio.play();anim();
   });
 }
-
-function rand(a: number, b: number) { return Math.floor(Math.random()*(b-a+1))+a; }
