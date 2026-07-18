@@ -234,7 +234,7 @@ export async function generateTalkingVideo(
       S.lean.t=weightShiftDir*.02*(1-settle);
 
       // 5. 呼吸 — 始终在，说话时被部分抑制
-      S.breath.t=Math.sin(t*1.55)*.5*(1-speaking*.4);
+      S.breath.t=Math.sin(t*1.55)*.5*(1-(speaking?0.4:0));
 
       // 6. 身体微动
       S.bob.t=Math.sin(t*.9)*.02+Math.sin(t*1.6)*.015;
@@ -260,7 +260,7 @@ export async function generateTalkingVideo(
       S.armSwing.t=Math.sin(t*1.4)*.025*(1-settle*.6);
 
       // 更新弹簧
-      for(const s of Object.values(S))s.update(dt);
+      for(const s of Object.values(S))s.up(dt);
 
       // ── 应用动画 ────────────────────────
 
