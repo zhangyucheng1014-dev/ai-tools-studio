@@ -71,11 +71,14 @@ export function ToolRunner({ tool }: Props) {
         // ── AI 配音 ───────────────────────────────────
         case "ai-voice": {
           setOutput("正在生成语音…");
-          const voiceName = String(options.voice ?? "");
-          const speed = Number(options.speed ?? 1.0);
-          const blob = await speakToBlob(prompt, voiceName || undefined, speed);
+          // 优先用 GPT-SoVITS 原版
+          let blob: Blob | null = null;
+          try {
+            const apiRes = await fetch("http://localhost:8000/api/gpt-sovits/tts", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text:prompt,language:"zh",speed:Number(options.speed??1.0)}) });
+            if(apiRes.ok){ blob=await apiRes.blob(); setOutput("✅ GPT-SoVITS 原版配音完成！"); }
+          } catch {}
+          if(!blob){ blob=await speakToBlob(prompt, String(options.voice??""), Number(options.speed??1.0)); setOutput("✅ 配音生成完成！（浏览器模式）"); }
           setAudioBlob(blob);
-          setOutput("✅ 配音生成完成！\n\n可点击下方播放或下载。");
           break;
         }
 
@@ -136,19 +139,25 @@ export function ToolRunner({ tool }: Props) {
         // ── 数字人口播 ─────────────────────────────────
         case "digital-human": {
           if (file) {
-            setOutput("正在生成口播视频…\n\n请稍候，全流程约需 1-2 分钟。");
-            const photoUrl = URL.createObjectURL(file);
-            const aspect = String(options.aspectRatio ?? "9:16（竖屏）");
-            const { generateTalkingVideo } = await import("@/services/face-animate");
-            const videoBlob = await generateTalkingVideo(photoUrl, prompt || "欢迎使用 AI 工具台", aspect,
-              (msg) => setOutput(`正在生成口播视频…\n\n${msg}`)
-            );
-            URL.revokeObjectURL(photoUrl);
-            if (videoBlob) {
-              setAudioBlob(videoBlob);
-              setOutput("✅ 口播视频生成完成！\n\n点击下方按钮播放或下载视频。");
-            } else {
-              setError("视频生成失败，请重试。");
+            let videoBlob: Blob | null = null;
+            // 优先用 SadTalker 原版
+            try {
+              setOutput("尝试 SadTalker 原版…");
+              const voiceBlob = await speakToBlob(prompt||"你好");
+              const fd = new FormData(); fd.append("photo",file); fd.append("audio",new File([voiceBlob],"audio.wav")); fd.append("size","256");
+              const apiRes = await fetch("http://localhost:8000/api/sadtalker/generate",{method:"POST",body:fd});
+              if(apiRes.ok){ videoBlob=await apiRes.blob(); setAudioBlob(videoBlob); setOutput("✅ SadTalker 原版生成完成！"); }
+            } catch {}
+            // 浏览器降级
+            if(!videoBlob){
+              setOutput("SadTalker 未安装，使用浏览器引擎…（建议安装原版获得更好效果）");
+              const photoUrl = URL.createObjectURL(file);
+              const aspect = String(options.aspectRatio ?? "9:16（竖屏）");
+              const { generateTalkingVideo } = await import("@/services/face-animate");
+              videoBlob = await generateTalkingVideo(photoUrl, prompt||"你好", aspect, (m)=>setOutput(m));
+              URL.revokeObjectURL(photoUrl);
+              if(videoBlob){ setAudioBlob(videoBlob); setOutput("✅ 口播视频生成完成！（浏览器模式）"); }
+              else { setError("视频生成失败"); }
             }
           } else {
             setOutput("请上传一张正面照片，然后输入口播文案。");
@@ -188,6 +197,12 @@ export function ToolRunner({ tool }: Props) {
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-[var(--muted)] hover:text-[var(--fg)] transition-colors">
           <ArrowLeft size={16} /> 返回
         </Link>
+
+        {/* 性能提示 */}
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+          ⚠️ <strong>本地 AI 计算提示：</strong>视频生成和 AI 配音会大量占用 CPU/GPU，
+          可能导致电脑发热、风扇狂转、短时卡顿。建议插电使用，关闭其他重负载应用。
+        </div>
 
         <Card>
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
