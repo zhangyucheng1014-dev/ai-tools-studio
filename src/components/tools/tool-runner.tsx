@@ -136,11 +136,22 @@ export function ToolRunner({ tool }: Props) {
         // ── 数字人口播 ─────────────────────────────────
         case "digital-human": {
           if (file) {
-            setOutput("正在准备生成口播视频…\n\n请确保已安装 SadTalker 或等待浏览器端版本就绪。\n当前版本支持：上传照片 + TTS 配音。");
-            const blob = await speakToBlob(prompt || "你好，这是数字人口播演示。");
-            setAudioBlob(blob);
+            setOutput("正在生成口播视频…\n\n请稍候，全流程约需 1-2 分钟。");
+            const photoUrl = URL.createObjectURL(file);
+            const aspect = String(options.aspectRatio ?? "9:16（竖屏）");
+            const { generateTalkingVideo } = await import("@/services/face-animate");
+            const videoBlob = await generateTalkingVideo(photoUrl, prompt || "欢迎使用 AI 工具台", aspect,
+              (msg) => setOutput(`正在生成口播视频…\n\n${msg}`)
+            );
+            URL.revokeObjectURL(photoUrl);
+            if (videoBlob) {
+              setAudioBlob(videoBlob);
+              setOutput("✅ 口播视频生成完成！\n\n点击下方按钮播放或下载视频。");
+            } else {
+              setError("视频生成失败，请重试。");
+            }
           } else {
-            setOutput("请上传一张照片，然后输入口播文案。");
+            setOutput("请上传一张正面照片，然后输入口播文案。");
           }
           break;
         }
