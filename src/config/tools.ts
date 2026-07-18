@@ -92,6 +92,21 @@ export const tools: Tool[] = [
     ]
   },
   {
+    slug: "video-enhancer",
+    name: "视频增强",
+    tagline: "画质提升、降噪、调色",
+    description: "上传视频，自动进行画质增强处理——锐化细节、降噪、调色，让视频看起来更清晰更专业。",
+    provider: "VideoEnhancer",
+    icon: "sparkles",
+    inputs: ["视频文件", "增强强度"],
+    instructions: [
+      "上传需要增强的视频文件（建议 MP4）",
+      "选择增强强度",
+      "提交后自动处理并导出"
+    ],
+    fileBased: true
+  },
+  {
     slug: "multi-platform-publish",
     name: "一键发布",
     tagline: "视频多平台自动分发",

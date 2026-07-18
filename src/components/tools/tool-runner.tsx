@@ -4,6 +4,7 @@ import { Play, Settings2, WandSparkles, Upload, ArrowLeft, Volume2, Download, Lo
 import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Button, Card } from "@/components/ui/base";
+import { ModelDownloadModal } from "@/components/ui/model-download-modal";
 import { toolOptions, type FieldDef } from "@/config/tool-options";
 
 // 浏览器端引擎
@@ -11,6 +12,9 @@ import { rewriteContent, translateSubtitles, generateScript, generateSocialCopy,
 import { quickRewrite, quickScript, quickSocialCopy } from "@/services/light-engine";
 import { speakToBlob, downloadBlob, playBlob, getChineseVoices, type TTSVoice } from "@/services/browser-tts";
 import { speechToText } from "@/services/whisper-stt";
+
+// 需要 AI 模型的工具列表
+const AI_TOOLS = ["content-rewriter", "subtitle-generator", "video-factory", "multi-platform-publish"];
 
 type Props = {
   tool: { slug: string; name: string; inputs: string[]; fileBased?: boolean };
@@ -24,6 +28,7 @@ export function ToolRunner({ tool }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
 
   const fields: FieldDef[] = toolOptions[tool.slug] ?? [];
   const [options, setOptions] = useState<Record<string, string | number>>(() => {
@@ -43,6 +48,13 @@ export function ToolRunner({ tool }: Props) {
   const run = useCallback(async () => {
     const hasText = prompt.trim();
     if (!hasText && !file) return;
+
+    // AI 工具：检查模型是否已下载
+    if (AI_TOOLS.includes(tool.slug) && !isLoaded()) {
+      setShowDownloadModal(true);
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setOutput("");
@@ -217,8 +229,8 @@ export function ToolRunner({ tool }: Props) {
 
         {/* 性能提示 */}
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-          ⚠️ <strong>本地 AI 计算提示：</strong>视频生成和 AI 配音会大量占用 CPU/GPU，
-          可能导致电脑发热、风扇狂转、短时卡顿。建议插电使用，关闭其他重负载应用。
+          ⚠️ <strong>提示：</strong>AI 模型在浏览器中本地运行，会占用较多 CPU 资源，
+          可能导致电脑发热、风扇转动、短时卡顿。建议插电使用。
         </div>
 
         <Card>
@@ -237,19 +249,29 @@ export function ToolRunner({ tool }: Props) {
                 className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-black/15 bg-white/40 px-4 py-6 text-sm text-[var(--muted)] transition hover:border-[var(--accent)] hover:text-[var(--accent)]"
               >
                 <Upload size={18} />
-                {file ? <span className="text-[var(--fg)]">{file.name} ({(file.size / 1024 / 1024).toFixed(1)} MB)</span> : "点击上传文件"}
+                {file ? (
+                  <span className="text-[var(--fg)]">{file.name} ({(file.size / 1024 / 1024).toFixed(1)} MB)</span>
+                ) : (() => {
+                  const acc = fields.find(f => f.type === "file")?.accept ?? "";
+                  const hint = acc.includes("image") ? "上传照片 · JPG/PNG/WebP"
+                    : acc.includes("audio") && acc.includes("video") ? "上传音视频 · MP3/WAV/MP4"
+                    : acc.includes("video") ? "上传视频 · MP4/MOV/WebM"
+                    : acc.includes("audio") ? "上传音频 · MP3/WAV"
+                    : "点击上传文件";
+                  return hint;
+                })()}
               </button>
             </div>
           )}
 
           {!tool.fileBased ? (
             <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
-              placeholder={`输入${tool.inputs.slice(0, 2).join("、")}…`}
+              placeholder={tool.slug === "subtitle-generator" ? "输入字幕文本或上传音频文件…" : `输入${tool.inputs.slice(0, 2).join("、")}…`}
               className="min-h-36 w-full resize-none rounded-lg border border-black/10 bg-white/80 p-4 text-sm leading-6 outline-none transition focus:border-[var(--accent)]"
             />
           ) : (
             <textarea value={prompt} onChange={e => setPrompt(e.target.value)}
-              placeholder="补充描述（选填）…"
+              placeholder={tool.slug === "subtitle-generator" && !file ? "输入字幕文本（或上传音频自动识别）…" : "补充描述（选填）…"}
               className="min-h-20 w-full resize-none rounded-lg border border-black/10 bg-white/80 p-4 text-sm leading-6 outline-none transition focus:border-[var(--accent)]"
             />
           )}
@@ -326,6 +348,17 @@ export function ToolRunner({ tool }: Props) {
           </p>
         )}
       </Card>
+
+      {/* 模型下载弹窗 */}
+      <ModelDownloadModal
+        open={showDownloadModal}
+        onClose={() => setShowDownloadModal(false)}
+        onReady={() => {
+          setShowDownloadModal(false);
+          // 模型就绪后自动重新执行
+          setTimeout(() => run(), 500);
+        }}
+      />
     </div>
   );
 }

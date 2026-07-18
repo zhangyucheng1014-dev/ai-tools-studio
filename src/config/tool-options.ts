@@ -37,6 +37,10 @@ export const toolOptions: Record<string, FieldDef[]> = {
     { key: "subtitleStyle", label: "字幕样式", type: "select", options: ["粗体", "简约", "卡拉OK", "无字幕"], defaultValue: "粗体" },
     { key: "aspectRatio", label: "画面比例", type: "select", options: ["9:16（竖屏）", "16:9（横屏）", "1:1（方形）"], defaultValue: "9:16（竖屏）" }
   ],
+  "video-enhancer": [
+    { key: "videoFile", label: "上传视频文件", type: "file", accept: "video/*" },
+    { key: "enhanceLevel", label: "增强强度", type: "select", options: ["轻度", "中度", "深度"], defaultValue: "中度" }
+  ],
   "multi-platform-publish": [
     { key: "videoFile", label: "上传视频文件", type: "file", accept: "video/*" },
     { key: "platforms", label: "发布平台（多个用逗号分隔）", type: "text", placeholder: "抖音,小红书,B站", defaultValue: "抖音" },

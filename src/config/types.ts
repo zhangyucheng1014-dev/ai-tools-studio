@@ -5,6 +5,7 @@ export type ToolProvider =
   | "GPT-SoVITS"
   | "OpenAICompatible"
   | "MoneyPrinterTurbo"
+  | "VideoEnhancer"
   | "SocialAutoUpload";
 
 export type Tool = {
