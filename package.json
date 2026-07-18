@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@mediapipe/face_mesh": "^0.4.1633559619",
     "@mlc-ai/web-llm": "^0.2.84",
     "@types/three": "^0.185.1",
     "clsx": "^2.1.1",
