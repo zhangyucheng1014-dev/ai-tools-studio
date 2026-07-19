@@ -188,16 +188,13 @@ export function ToolRunner({ tool }: Props) {
             const apiRes = await fetch("http://localhost:8000/api/ttk/download", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({url:prompt}) });
             if(apiRes.ok){ const d=await apiRes.json(); setOutput("✅ "+ (d.output||"下载成功")); break; }
           } catch {}
-          // 降级 CORS 代理
-          try {
-            const proxy = "https://api.allorigins.win/raw?url=" + encodeURIComponent(prompt);
-            const res = await fetch(proxy);
-            if (res.ok) {
-              const html = await res.text();
-              const m = html.match(/src=["']([^"']+\.mp4[^"']*)["']/i) || html.match(/video[^>]+src=["']([^"']+)["']/i);
-              setOutput(m ? "✅ 提取到视频:\n" + m[1] + "\n\n右键复制链接下载" : "未能自动提取。\n安装 TikTokDownloader 后可用。\n\n链接: " + prompt);
-            } else { setOutput("CORS 代理不可用。\n安装 TikTokDownloader 后可使用。"); }
-          } catch { setOutput("网络请求失败。\n安装 TikTokDownloader 后可使用。\n\n链接: " + prompt); }
+          setOutput("抖音/快手等平台有反爬保护，网页端无法直接下载。\n\n" +
+            "请在本机安装 TikTokDownloader:\n" +
+            "1. 打开终端\n" +
+            "2. git clone https://github.com/JoeanAmier/TikTokDownloader\n" +
+            "3. cd TikTokDownloader && pip install -r requirements.txt\n" +
+            "4. 启动后即可使用\n\n" +
+            "链接: " + prompt);
           break;
         }
 
@@ -350,7 +347,7 @@ export function ToolRunner({ tool }: Props) {
 
         {!error && output && (
           <p className="mt-2 text-xs text-[var(--accent-dim)]">
-            {modelReady ? "🤖 AI 模型驱动" : "⚡ 快速引擎（AI 模型加载中…）"}
+            {AI_TOOLS.includes(tool.slug) && (modelReady ? "🤖 AI 模型驱动" : "⚡ 快速引擎（AI 模型加载中…）")}
           </p>
         )}
       </Card>
