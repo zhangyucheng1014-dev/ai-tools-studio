@@ -2,7 +2,7 @@
  * 本地服务启动器
  * 管理 Python 后端服务的生命周期（启动/停止/健康检查）
  */
-import { ChildProcess, spawn } from "child_process";
+import { ChildProcess, spawn, spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -141,7 +141,6 @@ export async function startService(
   if (fs.existsSync(reqFile)) {
     onLog?.("安装 Python 依赖…");
     try {
-      const { spawnSync } = require("child_process");
       const r = spawnSync(py.path!, ["-m", "pip", "install", "-r", "requirements.txt", "-q"], {
         cwd: serviceDir, stdio: "pipe", timeout: 600000,
       });

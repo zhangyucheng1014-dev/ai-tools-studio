@@ -2,10 +2,11 @@
  * Python 环境管理器
  * 检测 → 自动安装 embeddable Python → 管理 pip 包
  */
-import { execSync, spawnSync } from "child_process";
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import https from "https";
 
 const PYTHON_DIR = path.join(os.homedir(), ".ai-tools-studio", "python");
 const PYTHON_EXE = process.platform === "win32"
@@ -88,7 +89,6 @@ export async function installPython(onProgress?: (msg: string) => void): Promise
 
   try {
     // 下载 embeddable Python (~6MB)
-    const https = require("https");
     await new Promise<void>((resolve, reject) => {
       const file = fs.createWriteStream(zipPath);
       https.get(zipUrl, (res: any) => {
