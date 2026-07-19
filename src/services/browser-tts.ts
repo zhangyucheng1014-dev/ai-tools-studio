@@ -47,6 +47,9 @@ export async function speakToBlob(
       resolve(blob);
     };
 
+    // 先停掉所有之前的语音
+    speechSynthesis.cancel();
+
     const utterance = new SpeechSynthesisUtterance(text);
     const voices = speechSynthesis.getVoices();
 
@@ -54,7 +57,6 @@ export async function speakToBlob(
       const found = voices.find(v => v.name === voiceName);
       if (found) utterance.voice = found;
     } else {
-      // 默认选第一个中文语音
       const zhVoice = voices.find(v => v.lang.startsWith("zh-CN"))
         ?? voices.find(v => v.lang.startsWith("zh"));
       if (zhVoice) utterance.voice = zhVoice;
@@ -64,14 +66,13 @@ export async function speakToBlob(
     utterance.pitch = pitch;
     utterance.volume = 1;
 
-    utterance.onstart = () => mediaRecorder.start();
-    utterance.onend = () => mediaRecorder.stop();
+    let done = false;
+    utterance.onstart = () => { if(!done) mediaRecorder.start(); };
+    utterance.onend = () => { if(!done) { done = true; mediaRecorder.stop(); speechSynthesis.cancel(); } };
     utterance.onerror = (e) => {
-      mediaRecorder.stop();
+      if(!done) { done = true; mediaRecorder.stop(); speechSynthesis.cancel(); }
       reject(e);
     };
-
-    speechSynthesis.speak(utterance);
   });
 }
 
@@ -88,12 +89,27 @@ export function speakPreview(text: string, voiceName?: string, rate = 1.0): void
   speechSynthesis.speak(utterance);
 }
 
+let currentAudio: HTMLAudioElement | null = null;
+
 /** 播放音频 Blob */
-export function playBlob(blob: Blob): void {
+export function playBlob(blob: Blob): HTMLAudioElement {
+  stopAudio();
   const url = URL.createObjectURL(blob);
   const audio = new Audio(url);
-  audio.onended = () => URL.revokeObjectURL(url);
+  audio.onended = () => { URL.revokeObjectURL(url); currentAudio = null; };
   audio.play();
+  currentAudio = audio;
+  return audio;
+}
+
+/** 停止当前播放 */
+export function stopAudio(): void {
+  speechSynthesis.cancel();
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio.currentTime = 0;
+    currentAudio = null;
+  }
 }
 
 /** 下载 Blob 为文件 */

@@ -22,8 +22,8 @@ export const toolOptions: Record<string, FieldDef[]> = {
     { key: "aspectRatio", label: "画面比例", type: "select", options: ["9:16（竖屏）", "16:9（横屏）", "2.35:1（电影宽幅）"], defaultValue: "9:16（竖屏）" }
   ],
   "ai-voice": [
+    { key: "voiceSample", label: "上传你的声音样本（选填，用于音色克隆）", type: "file", accept: "audio/*" },
     { key: "voice", label: "音色", type: "select", options: ["温暖女声", "活力女声", "低沉男声", "温暖男声"], defaultValue: "温暖女声" },
-    { key: "emotion", label: "情绪", type: "select", options: ["自信", "平静", "激动", "温柔"], defaultValue: "自信" },
     { key: "speed", label: "语速", type: "number", placeholder: "正常为 1.0", defaultValue: 1.0 }
   ],
   "subtitle-generator": [

@@ -83,14 +83,28 @@ export function ToolRunner({ tool }: Props) {
         // ── AI 配音 ───────────────────────────────────
         case "ai-voice": {
           setOutput("正在生成语音…");
-          // 优先用 GPT-SoVITS 原版
           let blob: Blob | null = null;
-          try {
-            const apiRes = await fetch("http://localhost:8000/api/gpt-sovits/tts", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text:prompt,language:"zh",speed:Number(options.speed??1.0)}) });
-            if(apiRes.ok){ blob=await apiRes.blob(); setOutput("✅ GPT-SoVITS 原版配音完成！"); }
-          } catch {}
-          if(!blob){ blob=await speakToBlob(prompt, String(options.voice??""), Number(options.speed??1.0)); setOutput("✅ 配音生成完成！（浏览器模式）"); }
+          // 有声音样本 → 尝试音色克隆
+          if (file) {
+            try {
+              const fd = new FormData(); fd.append("audio", file); fd.append("text", prompt); fd.append("language","zh"); fd.append("speed", String(options.speed??1.0));
+              const apiRes = await fetch("http://localhost:8000/api/gpt-sovits/tts", { method:"POST", body:fd });
+              if(apiRes.ok){ blob=await apiRes.blob(); setOutput("✅ 音色克隆配音完成！"); }
+            } catch {}
+          }
+          // 无样本或无 API → 直接 TTS
+          if(!blob){
+            try {
+              const apiRes = await fetch("http://localhost:8000/api/gpt-sovits/tts", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text:prompt,language:"zh",speed:Number(options.speed??1.0)}) });
+              if(apiRes.ok){ blob=await apiRes.blob(); setOutput("✅ GPT-SoVITS 配音完成！"); }
+            } catch {}
+          }
+          if(!blob){
+            blob=await speakToBlob(prompt, String(options.voice??""), Number(options.speed??1.0));
+            setOutput("✅ 配音完成！（浏览器模式" + (file?"，首次使用时音色克隆需要安装 GPT-SoVITS)":"，安装 GPT-SoVITS 可使用原版音色克隆）"));
+          }
           setAudioBlob(blob);
+          stopAudio();
           break;
         }
 
@@ -323,7 +337,19 @@ export function ToolRunner({ tool }: Props) {
       <Card>
         <div className="mb-3 text-sm font-semibold">输出结果</div>
 
-        {error ? (
+        {loading ? (
+          <div className="min-h-48 flex flex-col items-center justify-center gap-4 rounded-lg border border-black/10 bg-white/40">
+            <LoaderCircle size={24} className="animate-spin text-[var(--accent)]" />
+            <div className="w-48">
+              <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-black/10">
+                <div className="h-full animate-pulse rounded-full bg-[var(--accent)]" style={{ width: "60%" }} />
+              </div>
+            </div>
+            <p className="text-sm text-[var(--accent-dim)]">
+              {output || "处理中…"}
+            </p>
+          </div>
+        ) : error ? (
           <div className="min-h-48 rounded-lg border border-red-200 bg-red-50 p-4 text-sm leading-7 text-red-700">{error}</div>
         ) : output ? (
           <>
@@ -333,7 +359,7 @@ export function ToolRunner({ tool }: Props) {
                 <Button size="sm" variant="secondary" onClick={() => playBlob(audioBlob)}>
                   <Volume2 size={14} /> 播放
                 </Button>
-                <Button size="sm" variant="secondary" onClick={() => downloadBlob(audioBlob, "配音.webm")}>
+                <Button size="sm" variant="secondary" onClick={() => downloadBlob(audioBlob, audioBlob.type.startsWith("video") ? "口播视频.webm" : "配音.webm")}>
                   <Download size={14} /> 下载
                 </Button>
               </div>
