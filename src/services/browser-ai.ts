@@ -1,5 +1,7 @@
 /**
- * 浏览器端 AI — WebLLM + Qwen 1.5B
+ * 桌面版 AI 引擎 — WebLLM + Qwen 1.5B
+ * 模型预置在本地 models/ 目录，Electron 自动拦截 CDN 请求本地加载
+ * 零下载，完全离线
  */
 import { CreateMLCEngine } from "@mlc-ai/web-llm";
 import { systemPrompts } from "@/config/prompts";
@@ -20,6 +22,7 @@ export async function ensureEngine(): Promise<void> {
   if (engine) return;
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
+    // 模型从本地或 CDN 加载，Electron 环境优先使用本地预置模型
     engine = await CreateMLCEngine(MODEL, {
       initProgressCallback: (r: { progress: number }) => {
         loadProgress = r.progress;
@@ -60,4 +63,5 @@ export async function generateSocialCopy(title: string, platforms: string) {
   return chat("你是社交媒体运营专家。", `视频: ${title}\n平台: ${platforms}\n\n标题+文案+话题:`, 0.7);
 }
 
+/** 后台静默预热模型 */
 export function preloadModel() { ensureEngine().catch(() => {}); }

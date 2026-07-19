@@ -1,11 +1,75 @@
 {
   "name": "ai-tools-studio",
-  "version": "1.0.0",
+  "version": "2.0.0",
+  "description": "AI 工具台桌面版 — 一站式 AI 内容创作，全部模型本地运行，完全离线",
   "private": true,
+  "main": "dist-electron/main.js",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && tsc -p electron/tsconfig.json && electron dist-electron/main.js\"",
+    "electron:build": "npm run build && tsc -p electron/tsconfig.json && electron-builder",
+    "electron:build:win": "npm run build && tsc -p electron/tsconfig.json && electron-builder --win",
+    "download-models": "node scripts/download-models.cjs",
+    "dist": "npm run electron:build:win"
+  },
+  "build": {
+    "appId": "com.aitools.studio",
+    "productName": "AI工具台",
+    "directories": {
+      "output": "release",
+      "buildResources": "public"
+    },
+    "files": [
+      "dist-electron/**/*",
+      "out/**/*",
+      "node_modules/**/*",
+      "package.json",
+      "public/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "models/",
+        "to": "models/",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "public/icon.png",
+      "artifactName": "AI工具台-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AI工具台",
+      "installerLanguages": ["zh_CN", "zh_TW", "en_US"],
+      "license": "LICENSE.txt",
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": ["dmg"],
+      "icon": "public/icon.png",
+      "artifactName": "AI工具台-${version}.${ext}"
+    },
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "icon": "public/icon.png",
+      "artifactName": "AI工具台-${version}.${ext}"
+    },
+    "asarUnpack": [
+      "node_modules/@mlc-ai/**/*",
+      "models/**/*"
+    ]
   },
   "dependencies": {
     "@mediapipe/face_mesh": "^0.4.1633559619",
@@ -25,8 +89,12 @@
     "@types/node": "^24.10.3",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "concurrently": "^9.2.1",
+    "electron": "^39.2.6",
+    "electron-builder": "^26.0.12",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
-    "vercel": "^56.3.2"
+    "vercel": "^56.3.2",
+    "wait-on": "^9.0.2"
   }
 }

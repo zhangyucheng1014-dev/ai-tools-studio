@@ -1,0 +1,37 @@
+name: 打包 Windows EXE
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: 安装依赖
+        run: npm install
+
+      - name: 构建 Next.js
+        run: npm run build
+
+      - name: 编译 Electron
+        run: npx tsc -p electron/tsconfig.json
+
+      - name: 打包 EXE
+        run: npx electron-builder --win --publish=never
+
+      - name: 上传 EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: AI工具台-Windows
+          path: release/*.exe

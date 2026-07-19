@@ -1,46 +1,20 @@
 /**
- * 浏览器端语音识别服务
- * 使用 whisper-web — C 编译到 WebAssembly，本地 CPU 推理
+ * 桌面版语音识别服务
+ * 使用浏览器原生 SpeechRecognition API（Electron/Chrome 内置）
+ * 无需下载，即时可用
  */
 
-let whisperModule: any = null;
-let loadPromise: Promise<void> | null = null;
-
-/** 动态加载 whisper-web（首次使用时从 CDN 下载，~75MB） */
-async function ensureWhisper(): Promise<any> {
-  if (whisperModule) return whisperModule;
-  if (loadPromise) return loadPromise;
-
-  loadPromise = (async () => {
-    // whisper-web 从 jsdelivr CDN 动态加载
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/whisper-web@0.1.6/dist/whisper.worker.js";
-    script.type = "module";
-    document.head.appendChild(script);
-
-    // 模拟加载 — 实际上 whisper-web 需要 Service Worker 等复杂设置
-    // 这里提供一个降级方案: 使用浏览器原生 Web Speech API 做语音识别
-    whisperModule = { ready: true, fallback: true };
-  })();
-
-  return loadPromise;
-}
-
-/** 使用浏览器原生 SpeechRecognition 做语音识别（whisper 降级方案） */
+/** 使用浏览器原生 SpeechRecognition 做语音识别 */
 export async function speechToText(audioBlob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
-    // 浏览器原生语音识别 — 只支持实时麦克风输入，不支持文件
-    // 对文件输入，创建一个 Audio 元素播放，同时用 SpeechRecognition 监听
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (!SpeechRecognition) {
-      // 最后的降级: 返回提示
       resolve(
-        "语音识别需要 Chrome 浏览器支持。\n\n" +
+        "语音识别需要 Chromium 内核支持（桌面版已内置）。\n\n" +
         "替代方案:\n" +
-        "1. 使用 Chrome 打开本工具\n" +
-        "2. 或者手动上传已有字幕文件(SRT/VTT)\n" +
-        "3. 或者直接用文字输入翻译"
+        "1. 手动上传已有字幕文件(SRT/VTT)\n" +
+        "2. 直接用文字输入翻译"
       );
       return;
     }
@@ -61,7 +35,6 @@ export async function speechToText(audioBlob: Blob): Promise<string> {
 
     recognition.onerror = (event: any) => {
       if (event.error === "no-speech" && fullText) {
-        // 有部分结果，不算失败
         recognition.stop();
       } else {
         reject(new Error(`语音识别失败: ${event.error}`));
@@ -95,7 +68,6 @@ export async function speechToText(audioBlob: Blob): Promise<string> {
       URL.revokeObjectURL(audioUrl);
     };
     audio.play().catch(() => {
-      // 播放失败，直接返回降级信息
       resolve(
         "音频文件无法播放。\n\n" +
         "请检查文件格式(支持 MP3/WAV/WebM)\n" +

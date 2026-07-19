@@ -4,11 +4,10 @@ import { Play, Settings2, WandSparkles, Upload, ArrowLeft, Volume2, Download, Lo
 import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Button, Card } from "@/components/ui/base";
-import { ModelDownloadModal } from "@/components/ui/model-download-modal";
 import { toolOptions, type FieldDef } from "@/config/tool-options";
 
-// 浏览器端引擎
-import { rewriteContent, translateSubtitles, generateScript, generateSocialCopy, isLoaded, isLoading } from "@/services/browser-ai";
+// 桌面端引擎
+import { rewriteContent, translateSubtitles, generateScript, generateSocialCopy, isLoaded, isLoading, preloadModel } from "@/services/browser-ai";
 import { quickRewrite, quickScript, quickSocialCopy } from "@/services/light-engine";
 import { speakToBlob, downloadBlob, playBlob, stopAudio, getChineseVoices, type TTSVoice } from "@/services/browser-tts";
 import { speechToText } from "@/services/whisper-stt";
@@ -28,7 +27,6 @@ export function ToolRunner({ tool }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-  const [showDownloadModal, setShowDownloadModal] = useState(false);
 
   const fields: FieldDef[] = toolOptions[tool.slug] ?? [];
   const [options, setOptions] = useState<Record<string, string | number>>(() => {
@@ -49,10 +47,9 @@ export function ToolRunner({ tool }: Props) {
     const hasText = prompt.trim();
     if (!hasText && !file) return;
 
-    // AI 工具：检查模型是否已下载
-    if (AI_TOOLS.includes(tool.slug) && !isLoaded()) {
-      setShowDownloadModal(true);
-      return;
+    // AI 工具：模型未加载时静默后台加载，先用快速引擎出结果
+    if (AI_TOOLS.includes(tool.slug) && !isLoaded() && !isLoading()) {
+      preloadModel();
     }
 
     setLoading(true);
@@ -71,7 +68,7 @@ export function ToolRunner({ tool }: Props) {
             const result = await rewriteContent(prompt, style);
             setOutput(result);
           } else {
-            setOutput("AI 模型加载中，先用快速引擎出稿…\n\n" + quickRewrite(prompt, style));
+            setOutput(quickRewrite(prompt, style));
             if (!modelLoading) {
               // 触发加载
               import("@/services/browser-ai").then(m => m.preloadModel());
@@ -101,7 +98,7 @@ export function ToolRunner({ tool }: Props) {
           }
           if(!blob){
             blob=await speakToBlob(prompt, String(options.voice??""), Number(options.speed??1.0));
-            setOutput("✅ 配音完成！（浏览器模式" + (file?"，首次使用时音色克隆需要安装 GPT-SoVITS)":"，安装 GPT-SoVITS 可使用原版音色克隆）"));
+            setOutput("✅ 配音完成！（桌面模式" + (file?"，首次使用时音色克隆需要安装 GPT-SoVITS)":"，安装 GPT-SoVITS 可使用原版音色克隆）"));
           }
           setAudioBlob(blob);
           stopAudio();
@@ -143,7 +140,7 @@ export function ToolRunner({ tool }: Props) {
             const result = await generateScript(prompt);
             setOutput(result);
           } else {
-            setOutput("AI 模型加载中，先用快速引擎生成…\n\n" + quickScript(prompt));
+            setOutput(quickScript(prompt));
             import("@/services/browser-ai").then(m => m.preloadModel());
           }
           break;
@@ -158,7 +155,7 @@ export function ToolRunner({ tool }: Props) {
             const result = await generateSocialCopy(prompt, platforms);
             setOutput(result);
           } else {
-            setOutput("AI 模型加载中，快速生成基础文案…\n\n" + quickSocialCopy(prompt, platforms));
+            setOutput(quickSocialCopy(prompt, platforms));
             import("@/services/browser-ai").then(m => m.preloadModel());
           }
           break;
@@ -176,15 +173,15 @@ export function ToolRunner({ tool }: Props) {
               const apiRes = await fetch("http://localhost:8000/api/sadtalker/generate",{method:"POST",body:fd});
               if(apiRes.ok){ videoBlob=await apiRes.blob(); setAudioBlob(videoBlob); setOutput("✅ SadTalker 原版生成完成！"); }
             } catch {}
-            // 浏览器降级
+            // 桌面降级
             if(!videoBlob){
-              setOutput("SadTalker 未安装，使用浏览器引擎…（建议安装原版获得更好效果）");
+              setOutput("SadTalker 未安装，使用桌面引擎…（建议安装原版获得更好效果）");
               const photoUrl = URL.createObjectURL(file);
               const aspect = String(options.aspectRatio ?? "9:16（竖屏）");
               const { generateTalkingVideo } = await import("@/services/face-animate");
               videoBlob = await generateTalkingVideo(photoUrl, prompt||"你好", aspect, (m)=>setOutput(m));
               URL.revokeObjectURL(photoUrl);
-              if(videoBlob){ setAudioBlob(videoBlob); setOutput("✅ 口播视频生成完成！（浏览器模式）"); }
+              if(videoBlob){ setAudioBlob(videoBlob); setOutput("✅ 口播视频生成完成！（桌面模式）"); }
               else { setError("视频生成失败"); }
             }
           } else {
@@ -244,11 +241,7 @@ export function ToolRunner({ tool }: Props) {
           <ArrowLeft size={16} /> 返回首页
         </Link>
 
-        {/* 性能提示 */}
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
-          ⚠️ <strong>提示：</strong>AI 模型在浏览器中本地运行，会占用较多 CPU 资源，
-          可能导致电脑发热、风扇转动、短时卡顿。建议插电使用。
-        </div>
+        {/* 桌面版：模型本地运行，无需额外提示 */}
 
         <Card>
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold">
@@ -373,21 +366,11 @@ export function ToolRunner({ tool }: Props) {
 
         {!error && output && (
           <p className="mt-2 text-xs text-[var(--accent-dim)]">
-            {AI_TOOLS.includes(tool.slug) && (modelReady ? "🤖 AI 模型驱动" : "⚡ 快速引擎（AI 模型加载中…）")}
+            {AI_TOOLS.includes(tool.slug) && (modelReady ? "🤖 本地 AI 模型驱动" : "⚡ 快速引擎 · AI 模型加载中…")}
           </p>
         )}
       </Card>
 
-      {/* 模型下载弹窗 */}
-      <ModelDownloadModal
-        open={showDownloadModal}
-        onClose={() => setShowDownloadModal(false)}
-        onReady={() => {
-          setShowDownloadModal(false);
-          // 模型就绪后自动重新执行
-          setTimeout(() => run(), 500);
-        }}
-      />
     </div>
   );
 }
