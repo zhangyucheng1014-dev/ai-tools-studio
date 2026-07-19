@@ -10,7 +10,7 @@ import { toolOptions, type FieldDef } from "@/config/tool-options";
 // 浏览器端引擎
 import { rewriteContent, translateSubtitles, generateScript, generateSocialCopy, isLoaded, isLoading } from "@/services/browser-ai";
 import { quickRewrite, quickScript, quickSocialCopy } from "@/services/light-engine";
-import { speakToBlob, downloadBlob, playBlob, getChineseVoices, type TTSVoice } from "@/services/browser-tts";
+import { speakToBlob, downloadBlob, playBlob, stopAudio, getChineseVoices, type TTSVoice } from "@/services/browser-tts";
 import { speechToText } from "@/services/whisper-stt";
 
 // 需要 AI 模型的工具列表
