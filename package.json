@@ -3,14 +3,14 @@
   "version": "2.0.0",
   "description": "AI 工具台桌面版 — 一站式 AI 内容创作，全部模型本地运行，完全离线",
   "private": true,
-  "main": "dist-electron/main.js",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && tsc -p electron/tsconfig.json && electron dist-electron/main.js\"",
-    "electron:build": "npm run build && tsc -p electron/tsconfig.json && electron-builder",
-    "electron:build:win": "npm run build && tsc -p electron/tsconfig.json && electron-builder --win",
+    "electron:dev": "concurrently \"next dev\" \"wait-on http://localhost:3000 && electron electron/main.cjs\"",
+    "electron:build": "npm run build && electron-builder",
+    "electron:build:win": "npm run build && electron-builder --win",
     "download-models": "node scripts/download-models.cjs",
     "dist": "npm run electron:build:win"
   },
@@ -22,7 +22,7 @@
       "buildResources": "public"
     },
     "files": [
-      "dist-electron/**/*",
+      "electron/**/*.cjs",
       "out/**/*",
       "node_modules/**/*",
       "package.json",
