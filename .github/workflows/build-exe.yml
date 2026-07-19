@@ -2,7 +2,7 @@ name: 打包 Windows EXE
 
 on:
   push:
-    branches: [main, master]
+    branches: [master, main]
   workflow_dispatch:  # 允许手动触发
 
 jobs:
