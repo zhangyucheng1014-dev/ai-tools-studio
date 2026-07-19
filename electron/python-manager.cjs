@@ -13,11 +13,11 @@ const PYTHON_EXE = process.platform === "win32"
   : path.join(PYTHON_DIR, "bin", "python3");
 
 const REQUIRED_PACKAGES = {
-  "video-downloader": { packages: [], desc: "视频下载服务" },
-  "ai-voice": { packages: ["numpy", "scipy", "soundfile", "torch", "transformers"], desc: "GPT-SoVITS AI 配音" },
-  "digital-human": { packages: ["numpy", "opencv-python", "torch", "imageio"], desc: "SadTalker 数字人" },
-  "video-factory": { packages: ["moviepy", "pillow", "numpy"], desc: "视频制作引擎" },
-  "video-enhancer": { packages: ["opencv-python", "numpy", "pillow"], desc: "视频增强引擎" },
+  "video-downloader": { packages: [], desc: "TikTokDownloader" },
+  "digital-human": { packages: [], desc: "HeyGem" },
+  "ai-voice": { packages: ["numpy", "scipy", "soundfile", "torch", "transformers"], desc: "GPT-SoVITS" },
+  "video-factory": { packages: ["moviepy", "pillow", "numpy"], desc: "MoneyPrinterTurbo" },
+  "multi-platform-publish": { packages: [], desc: "social-auto-upload" },
 };
 
 function detectPython() {

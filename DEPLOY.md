@@ -1,38 +1,28 @@
-# AI 工具台桌面版 — 构建指南
+# AI 工具台桌面版 v2.0
 
-## 一键打包 EXE
+## 一键打包
 
 ```bash
 npm install
 npm run dist
+# → release/AI工具台-Setup-2.0.0.exe
 ```
 
-输出：`release/AI工具台-Setup-2.0.0.exe`
+## 集成的开源工具
 
-## 工作原理
+| 工具 | 开源项目 | 方式 |
+|------|----------|------|
+| 视频下载 | [TikTokDownloader](https://github.com/JoeanAmier/TikTokDownloader) | 可选外部 Python 服务 |
+| 文案改写 | WebLLM (Qwen 2.5 1.5B) | 内置，纯本地 |
+| 数字人口播 | [HeyGem](https://github.com/GuijiAI/HeyGem.ai) | 可选外部 + 内置 3D 降级 |
+| AI 配音 | [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) | 可选外部 + 浏览器 TTS 降级 |
+| 字幕生成 | WebLLM + Speech API | 内置，纯本地 |
+| 视频制作 | [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) | 可选外部 Python 服务 |
+| 视频增强 | Canvas API | 内置，纯本地 |
+| 一键发布 | [social-auto-upload](https://github.com/dreammis/social-auto-upload) | 可选外部 Python 服务 |
 
-- **首次启动**：WebLLM 自动从 CDN 下载 AI 模型（~1.5GB），静默后台下载，存入本地缓存
-- **之后使用**：完全离线，模型从本地缓存加载，零网络请求
-- **下载期间**：快速引擎（light-engine）即时响应，不阻塞使用
+## 外部引擎安装
 
-## 可选：预下载模型
+首页 → "检测 & 安装外部引擎" → 一键检测 Python → 一键 clone + 启动服务
 
-如果想把模型也打进 EXE（EXE 会变大 ~1.5GB）：
-
-```bash
-npm run download-models   # 提前下载模型到 models/
-npm run dist              # 打包时会包含 models/ 目录
-```
-
-## 技术栈
-
-| 层级 | 技术 |
-|------|------|
-| 桌面壳 | Electron 39 |
-| 前端 | Next.js 16 (静态导出) |
-| AI 推理 | @mlc-ai/web-llm (Qwen 2.5 1.5B) |
-| TTS 配音 | Web Speech API |
-| STT 识别 | Web Speech API |
-| 数字人 | Three.js 3D 引擎 |
-| 视频处理 | Canvas API + MediaRecorder |
-| 外部引擎 | 可选 Python 服务（一键检测安装） |
+首次启动时 AI 模型自动静默下载（~1.5GB），下载期间轻量引擎即时可用，之后永久离线。

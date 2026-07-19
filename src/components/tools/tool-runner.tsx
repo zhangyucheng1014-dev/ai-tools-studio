@@ -85,14 +85,14 @@ export function ToolRunner({ tool }: Props) {
           if (file) {
             try {
               const fd = new FormData(); fd.append("audio", file); fd.append("text", prompt); fd.append("language","zh"); fd.append("speed", String(options.speed??1.0));
-              const apiRes = await fetch("http://localhost:8000/api/gpt-sovits/tts", { method:"POST", body:fd });
+              const apiRes = await fetch("http://localhost:8003/api/tts", { method:"POST", body:fd });
               if(apiRes.ok){ blob=await apiRes.blob(); setOutput("✅ 音色克隆配音完成！"); }
             } catch {}
           }
           // 无样本或无 API → 直接 TTS
           if(!blob){
             try {
-              const apiRes = await fetch("http://localhost:8000/api/gpt-sovits/tts", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text:prompt,language:"zh",speed:Number(options.speed??1.0)}) });
+              const apiRes = await fetch("http://localhost:8003/api/tts", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({text:prompt,language:"zh",speed:Number(options.speed??1.0)}) });
               if(apiRes.ok){ blob=await apiRes.blob(); setOutput("✅ GPT-SoVITS 配音完成！"); }
             } catch {}
           }
@@ -165,17 +165,17 @@ export function ToolRunner({ tool }: Props) {
         case "digital-human": {
           if (file) {
             let videoBlob: Blob | null = null;
-            // 优先用 SadTalker 原版
+            // 优先用 HeyGem 原版
             try {
-              setOutput("尝试 SadTalker 原版…");
+              setOutput("尝试 HeyGem 原版…");
               const voiceBlob = await speakToBlob(prompt||"你好");
-              const fd = new FormData(); fd.append("photo",file); fd.append("audio",new File([voiceBlob],"audio.wav")); fd.append("size","256");
-              const apiRes = await fetch("http://localhost:8000/api/sadtalker/generate",{method:"POST",body:fd});
-              if(apiRes.ok){ videoBlob=await apiRes.blob(); setAudioBlob(videoBlob); setOutput("✅ SadTalker 原版生成完成！"); }
+              const fd = new FormData(); fd.append("photo",file); fd.append("audio",new File([voiceBlob],"audio.wav"));
+              const apiRes = await fetch("http://localhost:8002/api/generate",{method:"POST",body:fd});
+              if(apiRes.ok){ videoBlob=await apiRes.blob(); setAudioBlob(videoBlob); setOutput("✅ HeyGem 原版生成完成！"); }
             } catch {}
-            // 桌面降级
+            // 降级到内置 3D 引擎
             if(!videoBlob){
-              setOutput("SadTalker 未安装，使用桌面引擎…（建议安装原版获得更好效果）");
+              setOutput("HeyGem 未安装，使用内置 3D 引擎…（首页→检测&安装外部引擎→启动 HeyGem 获得更好效果）");
               const photoUrl = URL.createObjectURL(file);
               const aspect = String(options.aspectRatio ?? "9:16（竖屏）");
               const { generateTalkingVideo } = await import("@/services/face-animate");
@@ -196,7 +196,7 @@ export function ToolRunner({ tool }: Props) {
           setOutput("正在解析链接…");
           // 优先用 TikTokDownloader 本地
           try {
-            const apiRes = await fetch("http://localhost:8000/api/ttk/download", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({url:prompt}) });
+            const apiRes = await fetch("http://localhost:8001/api/download", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({url:prompt}) });
             if(apiRes.ok){ const d=await apiRes.json(); setOutput("✅ "+ (d.output||"下载成功")); break; }
           } catch {}
           setOutput("抖音/快手等平台有反爬保护，网页端无法直接下载。\n\n" +
