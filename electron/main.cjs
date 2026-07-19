@@ -26,10 +26,24 @@ function serveStatic(req, res) {
   const url = new URL(req.url || "/", "http://localhost:" + PORT);
   let filePath = path.join(OUT_DIR, url.pathname === "/" ? "index.html" : url.pathname);
 
+  // 依次尝试: 精确路径 → +.html → 目录/index.html → SPA fallback
   if (!fs.existsSync(filePath)) {
-    filePath = path.join(OUT_DIR, "index.html");
+    // Next.js 导出: /tools/xxx → tools/xxx.html
+    if (fs.existsSync(filePath + ".html")) {
+      filePath = filePath + ".html";
+    } else {
+      // 可能是目录
+      const dirIndex = path.join(filePath, "index.html");
+      if (fs.existsSync(dirIndex)) {
+        filePath = dirIndex;
+      } else {
+        // SPA fallback: 返回 index.html（客户端路由处理）
+        filePath = path.join(OUT_DIR, "index.html");
+      }
+    }
   } else if (fs.statSync(filePath).isDirectory()) {
-    filePath = path.join(filePath, "index.html");
+    const dirIndex = path.join(filePath, "index.html");
+    filePath = fs.existsSync(dirIndex) ? dirIndex : path.join(OUT_DIR, "index.html");
   }
 
   const ext = path.extname(filePath);
