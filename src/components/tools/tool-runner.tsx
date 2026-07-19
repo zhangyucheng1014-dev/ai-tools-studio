@@ -2,7 +2,6 @@
 
 import { Play, Settings2, WandSparkles, Upload, ArrowLeft, Volume2, Download, LoaderCircle } from "lucide-react";
 import { useState, useCallback, useRef } from "react";
-import Link from "next/link";
 import { Button, Card } from "@/components/ui/base";
 import { toolOptions, type FieldDef } from "@/config/tool-options";
 
@@ -237,9 +236,9 @@ export function ToolRunner({ tool }: Props) {
   return (
     <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
       <div className="grid gap-4">
-        <Link href="/" className="mb-2 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--muted)] hover:bg-black/5 hover:text-[var(--fg)] transition-colors">
+        <a href="/index.html" className="mb-2 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-[var(--muted)] hover:bg-black/5 hover:text-[var(--fg)] transition-colors">
           <ArrowLeft size={16} /> 返回首页
-        </Link>
+        </a>
 
         {/* 桌面版：模型本地运行，无需额外提示 */}
 
